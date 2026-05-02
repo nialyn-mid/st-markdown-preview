@@ -57,6 +57,7 @@
     quotes: none;
     color: var(--SmartThemeQuoteColor, inherit);
 }
+
 #st-markdown-preview-content q::before,
 #st-markdown-preview-content q::after {
     content: none;
@@ -84,7 +85,8 @@
     background-color: rgba(0, 0, 0, 0.4);
     padding: 2px 5px;
     border-radius: 3px;
-    font-family: var(--mainFontFamily, monospace); /* Use theme font or mono */
+    font-family: var(--mainFontFamily, monospace);
+    /* Use theme font or mono */
     border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
 }
 
@@ -110,10 +112,12 @@
     white-space: pre-wrap;
     word-wrap: break-word;
     z-index: 1;
-    overflow-y: hidden; /* Scroll is synced via JS */
+    overflow-y: hidden;
+    /* Scroll is synced via JS */
     color: var(--SmartThemeBodyColor);
     background: transparent;
-    border: none !important; /* Visual border is on the textarea */
+    border: none !important;
+    /* Visual border is on the textarea */
     text-shadow: 0px 0px calc(var(--shadowWidth) * 1px) var(--SmartThemeShadowColor);
 }
 
@@ -121,13 +125,25 @@
     display: block;
 }
 
-/* Make real textarea text transparent but keep cursor (caret) */
-#send_textarea.st-inline-active {
-    color: transparent !important;
-    background-color: transparent !important;
-    caret-color: var(--SmartThemeBodyColor, white) !important;
-    z-index: 2;
-    text-shadow: none !important;
+/* Virtual Cursor and Selection */
+.st-virtual-caret {
+    position: absolute;
+    width: 2px;
+    background-color: var(--SmartThemeBodyColor, white);
+    z-index: 10;
+    pointer-events: none;
+    animation: st-caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes st-caret-blink {
+    to { visibility: hidden; }
+}
+
+.st-virtual-selection {
+    position: absolute;
+    background-color: rgba(66, 133, 244, 0.4); /* Classic blue highlight */
+    z-index: 5;
+    pointer-events: none;
 }
 
 /* Markdown Highlighting for Inline Mirror */
@@ -148,7 +164,7 @@
 
 .md-code {
     font-family: var(--mono-font-family, monospace);
-    background-color: rgba(0, 0, 0, 0.3);
+    background-color: rgba(255, 255, 255, 0.1);
     padding: 0 4px;
     border-radius: 3px;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -163,6 +179,21 @@
     font-weight: 900;
     color: var(--SmartThemeEmColor, inherit);
     text-decoration: underline;
+    text-decoration-thickness: 2px;
+}
+
+/* Make real textarea completely invisible but functional */
+#send_textarea.st-inline-active {
+    color: transparent !important;
+    background-color: transparent !important;
+    caret-color: transparent !important; /* Hide native cursor */
+    z-index: 2;
+    text-shadow: none !important;
+    -webkit-text-fill-color: transparent;
+}
+
+#send_textarea.st-inline-active::selection {
+    background: transparent !important; /* Hide native selection */
 }
 
 #st-markdown-preview-spacer {

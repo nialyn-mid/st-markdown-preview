@@ -1,8 +1,10 @@
 import { getContext, renderExtensionTemplateAsync } from '../../extensions.js';
 import { debounce } from '../../utils.js';
-import { debounce_timeout } from '../../constants.js';
 
 const MODULE_NAME = 'st-markdown-preview';
+const debounce_timeout = {
+    short: 50,
+};
 
 const defaultSettings = {
     enabled: true,
@@ -11,217 +13,253 @@ const defaultSettings = {
 };
 
 let settings = { ...defaultSettings };
+let cm = null;
 
 /**
- * Saves settings to SillyTavern's extension settings.
+ * Loads a script from a CDN.
  */
-function saveSettings() {
-    const context = getContext();
-    if (!context.extensionSettings) context.extensionSettings = {};
-    context.extensionSettings[MODULE_NAME] = settings;
-    context.saveSettingsDebounced();
+function loadScript(url) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = url;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
 }
 
 /**
- * Loads settings from SillyTavern's extension settings.
+ * Loads a stylesheet from a CDN.
  */
-function loadSettings() {
-    const context = getContext();
-    const saved = context.extensionSettings?.[MODULE_NAME];
-    if (saved) {
-        settings = { ...defaultSettings, ...saved };
+function loadStyle(url) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = url;
+    document.head.appendChild(link);
+}
+
+/**
+ * Initializes CodeMirror on the textarea.
+ */
+async function initCodeMirror() {
+    if (cm) return;
+
+    const textarea = document.getElementById('send_textarea');
+    if (!textarea) return;
+
+    // Load CodeMirror from CDN if not already loaded
+    if (typeof CodeMirror === 'undefined') {
+        loadStyle('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css');
+        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js');
+        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/markdown/markdown.min.js');
     }
+
+    cm = CodeMirror.fromTextArea(textarea, {
+        mode: 'markdown',
+        lineWrapping: true,
+        scrollbarStyle: null,
+        viewportMargin: Infinity,
+        spellcheck: true,
+        inputStyle: 'contenteditable',
+    });
+
+    // Proxy textarea properties to CodeMirror for ST compatibility
+    // This allows slash commands and macros to keep working
+    Object.defineProperty(textarea, 'selectionStart', {
+        get: () => cm.indexFromPos(cm.getCursor('start')),
+        set: (v) => cm.setSelection(cm.posFromIndex(v), cm.getCursor('end')),
+        configurable: true
+    });
+
+    Object.defineProperty(textarea, 'selectionEnd', {
+        get: () => cm.indexFromPos(cm.getCursor('end')),
+        set: (v) => cm.setSelection(cm.getCursor('start'), cm.posFromIndex(v)),
+        configurable: true
+    });
+
+    let isSyncing = false;
+
+    // Sync changes: CodeMirror -> Textarea
+    cm.on('change', () => {
+        if (isSyncing) return;
+        isSyncing = true;
+        cm.save(); // Automatically updates the textarea value
+        // Trigger ST events so character count and other extensions update
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        updateChatSpacer();
+        isSyncing = false;
+    });
+
+    // Proxy selectionStart/End for ST compatibility (Slash commands)
+    Object.defineProperty(textarea, 'selectionStart', {
+        get: () => cm.indexFromPos(cm.getCursor('start')),
+        set: (v) => { if (!isSyncing) cm.setCursor(cm.posFromIndex(v)); },
+        configurable: true
+    });
+
+    Object.defineProperty(textarea, 'selectionEnd', {
+        get: () => cm.indexFromPos(cm.getCursor('end')),
+        set: (v) => { if (!isSyncing) cm.setSelection(cm.getCursor('start'), cm.posFromIndex(v)); },
+        configurable: true
+    });
+
+    // Initial sync
+    syncCodeMirrorStyles();
+    updateChatSpacer();
 }
 
 /**
- * Ensures the chat spacer exists and is at the bottom of the chat area.
+ * Syncs the theme styles to CodeMirror.
+ */
+function syncCodeMirrorStyles() {
+    if (!cm) return;
+    const $textarea = $('#send_textarea');
+    const styles = window.getComputedStyle($textarea[0]);
+    
+    const $cmElement = $(cm.getWrapperElement());
+    $cmElement.css({
+        fontFamily: styles.fontFamily,
+        fontSize: styles.fontSize,
+        lineHeight: styles.lineHeight,
+        color: styles.color,
+        background: 'transparent',
+        padding: styles.padding,
+        flex: '1',
+    });
+    
+    // Custom CodeMirror CSS to match ST look and Smart Theme colors
+    const styleId = 'st-markdown-cm-styles';
+    $('#' + styleId).remove();
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.innerHTML = `
+        .CodeMirror { 
+            flex: 1 !important;
+            order: 2 !important;
+            height: auto; 
+            min-height: ${$textarea.outerHeight()}px; 
+            background: transparent !important; 
+            color: inherit !important;
+            border: none !important;
+            font-family: inherit !important;
+        }
+        .CodeMirror-scroll { height: auto; overflow: visible; min-height: 100%; }
+        .CodeMirror-lines { padding: 0; }
+        
+        /* Smart Theme Color Mapping */
+        .cm-header { font-weight: bold; color: var(--SmartThemeEmColor) !important; }
+        .cm-strong { font-weight: bold; color: var(--SmartThemeEmColor) !important; }
+        .cm-em { font-style: italic; color: inherit; }
+        .cm-strikethrough { text-decoration: line-through; opacity: 0.6; }
+        .cm-link { color: var(--SmartThemeQuoteColor) !important; text-decoration: underline; }
+        .cm-url { opacity: 0.5; }
+        .cm-quote { color: var(--SmartThemeQuoteColor) !important; font-style: italic; }
+        .cm-comment { background: rgba(255,255,255,0.05); border-radius: 3px; }
+        .cm-formatting { opacity: 0.4; }
+        
+        .CodeMirror-cursor { border-left: 2px solid var(--SmartThemeBodyColor, white) !important; }
+        .CodeMirror-selected { background: rgba(66, 133, 244, 0.2) !important; }
+
+        /* Force Flex Order */
+        #leftSendForm { order: 1 !important; }
+        #rightSendForm { order: 3 !important; }
+        #nonQRFormItems { display: flex !important; align-items: center !important; }
+    `;
+    document.head.appendChild(style);
+
+    // Give the browser a moment to layout the flexbox before refreshing CM
+    setTimeout(() => cm.refresh(), 10);
+}
+
+/**
+ * Ensures the spacer element exists at the bottom of the chat.
  */
 function ensureChatSpacer() {
-    const $chat = $('#chat');
-    if (!$chat.length) return;
-
-    let $spacer = $('#st-markdown-preview-spacer');
-    if (!$spacer.length) {
-        $spacer = $('<div id="st-markdown-preview-spacer"></div>');
-        $chat.append($spacer);
-    } else if ($spacer.parent()[0] !== $chat[0] || $spacer.next().length > 0) {
-        // Move it to the end if it's not there
-        $chat.append($spacer);
-    }
-}
-
-/**
- * Scrolls the chat to the bottom.
- * Attempts to use SillyTavern's native scroll helpers if available.
- */
-function scrollToBottom(smooth = true) {
-    // 1. Try SillyTavern's native global function
-    if (typeof window.scrollChatToBottom === 'function') {
-        window.scrollChatToBottom({ waitForFrame: true });
-        return;
-    }
-
-    // 2. Try SillyTavern's context-aware function
-    const context = getContext();
-    if (context && typeof context.scrollChatToBottom === 'function') {
-        context.scrollChatToBottom({ waitForFrame: true });
-        return;
-    }
-
-    // 3. Fallback to direct DOM manipulation
     const chat = document.getElementById('chat');
     if (!chat) return;
 
-    if (smooth) {
-        $(chat).animate({ scrollTop: chat.scrollHeight }, 200);
+    let spacer = document.getElementById('st-markdown-preview-spacer');
+    if (!spacer) {
+        spacer = document.createElement('div');
+        spacer.id = 'st-markdown-preview-spacer';
+        chat.appendChild(spacer);
+    } else if (chat.lastElementChild !== spacer) {
+        chat.appendChild(spacer);
+    }
+}
+
+/**
+ * Updates the height of the chat spacer.
+ */
+function updateChatSpacer() {
+    const spacer = document.getElementById('st-markdown-preview-spacer');
+    if (!spacer) {
+        ensureChatSpacer();
+        return;
+    }
+
+    let height = 0;
+    
+    // Add height of the preview overlay if in "Above" mode
+    if (settings.enabled && settings.aboveInput) {
+        const container = document.getElementById('st-markdown-preview-container');
+        if (container && container.classList.contains('visible')) {
+            height += container.offsetHeight;
+        }
+    }
+
+    // Add additional user-configured spacer
+    height += parseInt(settings.additionalSpacer) || 0;
+
+    spacer.style.height = `${height}px`;
+}
+
+/**
+ * Scrolls the chat container to the bottom.
+ */
+function scrollToBottom(force = false) {
+    const chat = document.getElementById('chat');
+    if (!chat) return;
+
+    // Use SillyTavern's native scroll function if available
+    if (window.scrollChatToBottom) {
+        window.scrollChatToBottom();
     } else {
         chat.scrollTop = chat.scrollHeight;
     }
 }
 
 /**
- * Updates the chat spacer height based on preview visibility and settings.
- */
-function updateChatSpacer() {
-    ensureChatSpacer();
-    const $container = $('#st-markdown-preview-container');
-    const $spacer = $('#st-markdown-preview-spacer');
-
-    if (!$spacer.length) return;
-
-    let height = parseInt(settings.additionalSpacer) + 10 || 0;
-
-    if (settings.enabled && settings.aboveInput && $container.hasClass('visible')) {
-        height += $container.outerHeight() || 0;
-    }
-
-    $spacer.css('height', `${height}px`);
-
-    // If we are at the bottom of the chat, ensure we stay there
-    const chat = document.getElementById('chat');
-    if (chat) {
-        const threshold = 150;
-        const isAtBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < threshold;
-        if (isAtBottom) {
-            scrollToBottom(false);
-        }
-    }
-}
-
-/**
- * Highlighting regex-based parser for inline preview.
- * Preserves delimiters while applying styling.
- */
-function highlightMarkdown(text) {
-    if (!text) return '';
-
-    // Escape HTML
-    let html = text.replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-
-    // Handle newlines
-    html = html.replace(/\n/g, '<br/>');
-
-    // Bold **text**
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="md-bold">**$1**</strong>');
-    // Bold __text__
-    html = html.replace(/__(.*?)__/g, '<strong class="md-bold">__$1__</strong>');
-    // Italic *text*
-    html = html.replace(/\*(.*?)\*/g, '<em class="md-italic">*$1*</em>');
-    // Italic _text_
-    html = html.replace(/_(.*?)_/g, '<em class="md-italic">_$1_</em>');
-    // Strikethrough ~~text~~
-    html = html.replace(/~~(.*?)~~/g, '<del class="md-strike">~~$1~~</del>');
-    // Inline Code `text`
-    html = html.replace(/`(.*?)`/g, '<code class="md-code">`$1`</code>');
-    // Blockquote
-    html = html.replace(/^(&gt; .*)/gm, '<span class="md-quote">$1</span>');
-    // Headers
-    html = html.replace(/^(#+ .*)/gm, '<span class="md-header">$1</span>');
-
-    // Add a trailing space to fix cursor alignment issues on empty lines
-    return html + ' ';
-}
-
-/**
- * Synchronizes the mirror div's scroll position with the textarea.
- */
-function syncScroll() {
-    const textarea = document.getElementById('send_textarea');
-    const mirror = document.getElementById('st-inline-preview');
-    if (textarea && mirror) {
-        mirror.scrollTop = textarea.scrollTop;
-        mirror.scrollLeft = textarea.scrollLeft;
-    }
-}
-
-/**
- * Synchronizes layout and styles from the textarea to the mirror div.
- */
-function syncStyles() {
-    const $textarea = $('#send_textarea');
-    const $mirror = $('#st-inline-preview');
-    if (!$textarea.length || (!$mirror.length && settings.enabled)) return;
-
-    const styles = window.getComputedStyle($textarea[0]);
-    const properties = [
-        'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing',
-        'lineHeight', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-        'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-        'boxSizing', 'textAlign', 'textTransform', 'wordBreak', 'overflowWrap', 'whiteSpace', 'opacity'
-    ];
-
-    const css = {};
-    properties.forEach(prop => {
-        css[prop] = styles[prop];
-    });
-
-    // Ensure opacity is visible
-    css.opacity = '1';
-
-    // Match dimensions
-    css.width = $textarea.outerWidth() + 'px';
-    css.height = $textarea.outerHeight() + 'px';
-    css.top = $textarea.position().top + 'px';
-    css.left = $textarea.position().left + 'px';
-
-    $mirror.css(css);
-}
-
-/**
  * Updates the preview content and visibility.
- * @param {boolean} immediate - If true, skip debouncing (used for inline mirror).
  */
-function updatePreview(immediate = false) {
+function updatePreview() {
     const $aboveContainer = $('#st-markdown-preview-container');
-    const $inlineMirror = $('#st-inline-preview');
     const $textarea = $('#send_textarea');
 
     if (!settings.enabled) {
+        if (cm) {
+            cm.toTextArea();
+            cm = null;
+        }
         $aboveContainer.removeClass('visible');
-        $inlineMirror.removeClass('visible');
-        $textarea.removeClass('st-inline-active');
         updateChatSpacer();
         return;
     }
 
-    const input = $textarea.val();
-
-    // Mode 1: Above Input (Overlay)
-    if (settings.aboveInput) {
-        $inlineMirror.removeClass('visible');
-        $textarea.removeClass('st-inline-active');
-
+    if (!settings.aboveInput) {
+        $aboveContainer.removeClass('visible');
+        if (!cm) initCodeMirror();
+        updateChatSpacer();
+    } else {
+        if (cm) {
+            cm.toTextArea();
+            cm = null;
+        }
+        
+        const input = $textarea.val();
         if (!input || input.trim() === '') {
             $aboveContainer.removeClass('visible');
             updateChatSpacer();
-            return;
-        }
-
-        // Debounce expensive rendering
-        if (!immediate) {
-            updatePreviewDebounced();
             return;
         }
 
@@ -230,44 +268,50 @@ function updatePreview(immediate = false) {
         let formattedText = context.messageFormatting(input, name1, false, true, -1);
         $('#st-markdown-preview-content').empty().append($('<div class="mes_text"></div>').html(formattedText));
         $aboveContainer.addClass('visible');
+        updateChatSpacer();
     }
-    // Mode 2: Inline Preview (Mirror)
-    else {
-        $aboveContainer.removeClass('visible');
-
-        if (!input || input.trim() === '') {
-            $inlineMirror.removeClass('visible');
-            $textarea.removeClass('st-inline-active');
-            updateChatSpacer();
-            return;
-        }
-
-        $inlineMirror.html(highlightMarkdown(input));
-        $inlineMirror.addClass('visible');
-        $textarea.addClass('st-inline-active');
-        syncStyles();
-        syncScroll();
-    }
-
-    updateChatSpacer();
 }
 
-const updatePreviewDebounced = debounce(() => updatePreview(true), debounce_timeout.short);
+const updatePreviewDebounced = debounce(updatePreview, debounce_timeout.short);
 
 /**
- * Initializes the settings UI in the extensions menu.
+ * Saves settings to SillyTavern's extension storage.
+ */
+function saveSettings() {
+    const context = getContext();
+    context.extensionSettings[MODULE_NAME] = settings;
+    saveSettingsDebounced();
+}
+
+const saveSettingsDebounced = debounce(() => {
+    const context = getContext();
+    context.saveSettings();
+}, 2000);
+
+/**
+ * Loads settings from SillyTavern's extension storage.
+ */
+function loadSettings() {
+    const context = getContext();
+    if (context.extensionSettings[MODULE_NAME]) {
+        settings = Object.assign(settings, context.extensionSettings[MODULE_NAME]);
+    }
+}
+
+/**
+ * Initializes the settings UI.
  */
 function initSettingsUI() {
     $('#st-markdown-preview-enabled').prop('checked', settings.enabled).on('change', function () {
         settings.enabled = !!$(this).prop('checked');
         saveSettings();
-        updatePreview(true);
+        updatePreview();
     });
 
     $('#st-markdown-preview-above-input').prop('checked', settings.aboveInput).on('change', function () {
         settings.aboveInput = !!$(this).prop('checked');
         saveSettings();
-        updatePreview(true);
+        updatePreview();
     });
 
     const $slider = $('#st-markdown-preview-spacer-slider');
@@ -296,100 +340,36 @@ function initSettingsUI() {
 async function init() {
     loadSettings();
 
-    // Render the templates
     const previewHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'preview');
     const $preview = $(previewHtml);
 
     const $previewContainer = $preview.filter('#st-markdown-preview-container');
     const $settings = $preview.filter('#st-markdown-preview-settings');
 
-    // Inject preview container (for Above mode)
     $('#send_form').prepend($previewContainer);
-
-    // Inject mirror div (for Inline mode)
-    if (!$('#st-inline-preview').length) {
-        $('<div id="st-inline-preview"></div>').insertBefore('#send_textarea');
-    }
-
-    // Inject settings
     $('#extensions_settings').append($settings);
 
     initSettingsUI();
 
-    // MutationObserver to keep spacer at bottom and detect chat changes
     const chat = document.getElementById('chat');
     if (chat) {
-        const observer = new MutationObserver(() => {
-            ensureChatSpacer();
-        });
+        const observer = new MutationObserver(() => ensureChatSpacer());
         observer.observe(chat, { childList: true });
     }
 
-    // ResizeObserver to handle preview height changes (text wrapping, etc.)
-    const resizeObserver = new ResizeObserver(() => {
-        updateChatSpacer();
-        if (!settings.aboveInput) syncStyles();
-    });
-    if ($previewContainer[0]) {
-        resizeObserver.observe($previewContainer[0]);
-    }
-
-    // Also observe the textarea for inline mode sync
-    const textarea = document.getElementById('send_textarea');
-    if (textarea) {
-        resizeObserver.observe(textarea);
-        textarea.addEventListener('scroll', syncScroll);
-    }
-
-    // Listen for input
-    $(document).on('input', '#send_textarea', () => {
-        // Mode 2 (Inline) is instant, Mode 1 (Above) is debounced
-        updatePreview(false);
-    });
-
-    $(document).on('focus', '#send_textarea', () => {
-        updatePreview(true);
-    });
-
     const context = getContext();
-
-    /**
-     * Aggressively forces the chat to scroll to the bottom during the initial load period.
-     */
-    async function forceInitialScroll() {
-        console.log('Markdown Preview: Starting robust scroll-to-bottom sequence.');
-        for (let i = 0; i < 8; i++) {
-            updateChatSpacer();
-            scrollToBottom(false);
-            await new Promise(r => setTimeout(r, 500));
-        }
-    }
-
-    // Handle character selection changes (to update macros)
-    context.eventSource.on(context.eventTypes.CHARACTER_SELECTED, () => {
-        if ($('#st-markdown-preview-container').hasClass('visible')) {
-            updatePreviewDebounced();
-        }
-        // Force scroll to bottom after character change
-        setTimeout(() => scrollToBottom(false), 200);
-    });
-
-    // Handle chat load events
     context.eventSource.on(context.eventTypes.CHAT_LOADED, () => {
-        forceInitialScroll();
+        updateChatSpacer();
+        setTimeout(() => scrollToBottom(force = true), 500);
     });
 
-    // Clear preview when a message is rendered (sent)
     context.eventSource.on(context.eventTypes.USER_MESSAGE_RENDERED, () => {
+        if (cm) cm.setValue('');
         $('#st-markdown-preview-container').removeClass('visible');
         updateChatSpacer();
     });
 
-    // Handle window resize
-    window.addEventListener('resize', updateChatSpacer);
-
-    // Initial sequence
-    forceInitialScroll();
+    updatePreview();
 }
 
 jQuery(init);
