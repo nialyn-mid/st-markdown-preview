@@ -15,8 +15,19 @@
             <div class="flex-container">
                 <label class="checkbox_label" for="st-markdown-preview-enabled">
                     <input id="st-markdown-preview-enabled" type="checkbox" checked />
-                    <span data-i18n="Enable live preview">Enable live preview</span>
+                    <span data-i18n="Enable extension">Enable extension</span>
                 </label>
+                <label class="checkbox_label" for="st-markdown-preview-above-input">
+                    <input id="st-markdown-preview-above-input" type="checkbox" checked />
+                    <span data-i18n="Preview above input">Preview above input</span>
+                </label>
+                <div class="alignitemscenter flex-container flexFlowColumn flexGrow flexShrink gap0 flexBasis48p">
+                    <small>
+                        <span style="font-weight: bold; margin-bottom: 2px; display: block;" data-i18n="Additional Chat Spacer (px)">Additional Chat Spacer (px)</span>
+                    </small>
+                    <input class="neo-range-slider" type="range" id="st-markdown-preview-spacer-slider" min="0" max="500" step="1" value="0">
+                    <input class="neo-range-input" type="number" id="st-markdown-preview-additional-spacer" min="0" max="500" step="1" value="0">
+                </div>
             </div>
         </div>
     </div>

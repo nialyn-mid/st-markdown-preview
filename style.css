@@ -102,6 +102,11 @@
     transition: opacity 0.2s;
 }
 
-#st-markdown-preview-container:hover #st-markdown-preview-header span {
-    opacity: 1;
+#st-markdown-preview-spacer {
+    width: 100%;
+    background-color: transparent;
+    transition: height 0.15s ease-out;
+    pointer-events: none;
+    flex-shrink: 0;
+    min-height: 0; /* Allow it to be 0 when set to 0 */
 }
