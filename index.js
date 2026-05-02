@@ -1,5 +1,6 @@
 import { getContext, renderExtensionTemplateAsync } from '/scripts/extensions.js';
 import { debounce } from '/scripts/utils.js';
+import { getAutoCompleteModule } from './js/compat.js';
 
 const MODULE_NAME = 'st-markdown-preview';
 const debounce_timeout = {
@@ -52,6 +53,7 @@ async function initCodeMirror() {
         loadStyle('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css');
         await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js');
         await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/markdown/markdown.min.js');
+        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/display/placeholder.min.js');
     }
 
     cm = CodeMirror.fromTextArea(textarea, {
@@ -61,6 +63,41 @@ async function initCodeMirror() {
         viewportMargin: Infinity,
         spellcheck: true,
         inputStyle: 'contenteditable',
+        placeholder: textarea.placeholder || 'Type a message...',
+    });
+
+    const wrapper = cm.getWrapperElement();
+
+    // Proxy bounding box methods so ST's AutoComplete finds the editor's position
+    // instead of the hidden textarea's position.
+    if (!textarea.originalGetBoundingClientRect) {
+        textarea.originalGetBoundingClientRect = textarea.getBoundingClientRect;
+        textarea.originalGetClientRects = textarea.getClientRects;
+    }
+    textarea.getBoundingClientRect = () => {
+        const rect = wrapper.getBoundingClientRect();
+        console.log(`[ST-Markdown] getBoundingClientRect: top=${rect.top} left=${rect.left} width=${rect.width} height=${rect.height}`);
+        return rect;
+    };
+    textarea.getClientRects = () => {
+        const rects = wrapper.getClientRects();
+        console.log(`[ST-Markdown] getClientRects: count=${rects.length}`);
+        return rects;
+    };
+
+    // Proxy dimension properties
+    Object.defineProperty(textarea, 'offsetWidth', { get: () => wrapper.offsetWidth, configurable: true });
+    Object.defineProperty(textarea, 'offsetHeight', { get: () => wrapper.offsetHeight, configurable: true });
+    Object.defineProperty(textarea, 'offsetTop', { get: () => wrapper.offsetTop, configurable: true });
+    Object.defineProperty(textarea, 'offsetLeft', { get: () => wrapper.offsetLeft, configurable: true });
+    Object.defineProperty(textarea, 'offsetParent', { get: () => wrapper.offsetParent, configurable: true });
+
+    // Ensure the editor doesn't collapse the flex container
+    $(wrapper).css({
+        flex: '1',
+        minHeight: '40px',
+        display: 'flex',
+        flexDirection: 'column'
     });
 
     let isSyncing = false;
@@ -69,25 +106,128 @@ async function initCodeMirror() {
     cm.on('change', () => {
         if (isSyncing) return;
         isSyncing = true;
-        cm.save(); // Automatically updates the textarea value
-        // Trigger ST events so character count and other extensions update
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        // Direct value sync without cm.save()
+        textarea.value = cm.getValue();
+
+        // Trigger ST events for autocomplete and character count
+        // Using setTimeout to prevent sync-event loops that might jump the cursor
+        setTimeout(() => {
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }, 0);
+        
         updateChatSpacer();
         isSyncing = false;
     });
+    
+    // Mirror keys for ST's slash command autocomplete
+    const mirrorEvent = (type, originalEvent) => {
+        if (!type.startsWith('key')) return;
+        
+        const event = new KeyboardEvent(type, {
+            key: originalEvent.key,
+            code: originalEvent.code,
+            ctrlKey: originalEvent.ctrlKey,
+            shiftKey: originalEvent.shiftKey,
+            altKey: originalEvent.altKey,
+            metaKey: originalEvent.metaKey,
+            bubbles: true,
+            cancelable: true
+        });
+        
+        // Force legacy properties which are often read-only
+        Object.defineProperty(event, 'keyCode', { value: originalEvent.keyCode || originalEvent.which });
+        Object.defineProperty(event, 'which', { value: originalEvent.which || originalEvent.keyCode });
+        Object.defineProperty(event, 'charCode', { value: originalEvent.charCode });
+        
+        const canceled = !textarea.dispatchEvent(event) || event.defaultPrevented;
+        if (canceled) {
+            originalEvent.preventDefault();
+            originalEvent.stopPropagation();
+        }
+    };
+
+    cm.on('keydown', (instance, e) => mirrorEvent('keydown', e));
+    cm.on('keyup', (instance, e) => mirrorEvent('keyup', e));
+
+    // Mirror focus/blur so ST's AutoComplete knows when to show/hide
+    let isMirroringFocus = false;
+    
+    // Capture original descriptors for safe fallback
+    const proto = HTMLTextAreaElement.prototype;
+    const descStart = Object.getOwnPropertyDescriptor(proto, 'selectionStart');
+    const descEnd = Object.getOwnPropertyDescriptor(proto, 'selectionEnd');
 
     // Proxy selectionStart/End for ST compatibility (Slash commands)
+    const descValue = Object.getOwnPropertyDescriptor(proto, 'value');
+    Object.defineProperty(textarea, 'value', {
+        get: () => cm ? cm.getValue() : descValue.get.call(textarea),
+        set: (v) => {
+            if (cm && !isSyncing) {
+                isSyncing = true;
+                cm.setValue(v);
+                isSyncing = false;
+            } else {
+                descValue.set.call(textarea, v);
+            }
+        },
+        configurable: true
+    });
+
     Object.defineProperty(textarea, 'selectionStart', {
-        get: () => cm.indexFromPos(cm.getCursor('start')),
-        set: (v) => { if (!isSyncing && cm) cm.setCursor(cm.posFromIndex(v)); },
+        get: () => cm ? cm.indexFromPos(cm.getCursor('start')) : descStart.get.call(textarea),
+        set: (v) => { 
+            if (cm && !isSyncing) cm.setCursor(cm.posFromIndex(v)); 
+            else descStart.set.call(textarea, v);
+        },
         configurable: true
     });
 
     Object.defineProperty(textarea, 'selectionEnd', {
-        get: () => cm.indexFromPos(cm.getCursor('end')),
-        set: (v) => { if (!isSyncing && cm) cm.setSelection(cm.getCursor('start'), cm.posFromIndex(v)); },
+        get: () => cm ? cm.indexFromPos(cm.getCursor('end')) : descEnd.get.call(textarea),
+        set: (v) => { 
+            if (cm && !isSyncing) cm.setSelection(cm.getCursor('start'), cm.posFromIndex(v)); 
+            else descEnd.set.call(textarea, v);
+        },
         configurable: true
     });
+
+    // Bypass AutoComplete focus check
+    const setupPatch = async () => {
+        try {
+            const module = await getAutoCompleteModule();
+            if (!module) return;
+            const ACClass = module.AutoComplete;
+            
+            if (ACClass && !ACClass.prototype.isPatched) {
+                const originalShow = ACClass.prototype.show;
+                ACClass.prototype.show = async function(...args) {
+                    const isEditorFocused = cm && cm.hasFocus();
+                    const doc = this.textarea.ownerDocument;
+                    const originalDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'activeElement');
+                    
+                    if (isEditorFocused) {
+                        Object.defineProperty(doc, 'activeElement', {
+                            get: () => this.textarea,
+                            configurable: true
+                        });
+                    }
+
+                    try {
+                        return await originalShow.apply(this, args);
+                    } finally {
+                        if (isEditorFocused) {
+                            Object.defineProperty(doc, 'activeElement', originalDescriptor);
+                        }
+                    }
+                };
+                ACClass.prototype.isPatched = true;
+            }
+        } catch (e) {
+            console.error('[ST-Markdown] Failed to patch AutoComplete:', e);
+        }
+    };
+    setupPatch();
 
     // Capture initial value from textarea
     if (textarea.value) {
@@ -95,16 +235,21 @@ async function initCodeMirror() {
     }
 
     // Capture external jQuery updates (common in ST)
-    const originalVal = jQuery.fn.val;
-    jQuery.fn.val = function (value) {
-        const res = originalVal.apply(this, arguments);
-        if (arguments.length > 0 && this.is('#send_textarea') && cm && !isSyncing) {
-            isSyncing = true;
-            cm.setValue(value);
-            isSyncing = false;
-        }
-        return res;
-    };
+    if (!jQuery.fn.originalVal) {
+        jQuery.fn.originalVal = jQuery.fn.val;
+        jQuery.fn.val = function (value) {
+            const res = jQuery.fn.originalVal.apply(this, arguments);
+            if (arguments.length > 0 && this.is('#send_textarea') && cm && !isSyncing) {
+                const currentVal = cm.getValue();
+                if (currentVal !== value) {
+                    isSyncing = true;
+                    cm.setValue(value);
+                    isSyncing = false;
+                }
+            }
+            return res;
+        };
+    }
 
     // Initial sync
     syncCodeMirrorStyles();
@@ -115,7 +260,7 @@ async function initCodeMirror() {
         token: function (stream) {
             // Slash commands (start of line)
             if (stream.sol() && stream.match(/\/\w+/)) return "st-command";
-            
+
             // Macros {{...}}
             if (stream.match(/{{[^}]+}}/)) return "st-macro";
 
@@ -124,12 +269,12 @@ async function initCodeMirror() {
 
             // Underline __...__ (ST specific)
             if (stream.match(/__[^_]+__/)) return "st-underline";
-            
+
             // Strikethrough ~~...~~
             if (stream.match(/~~[^~]+~~/)) return "st-strike";
 
-            while (stream.next() != null && 
-                   !stream.match(/"|{{|\/\w+|__|~~/, false)) { }
+            while (stream.next() != null &&
+                !stream.match(/"|{{|\/\w+|__|~~/, false)) { }
             return null;
         }
     });
@@ -142,7 +287,7 @@ function syncCodeMirrorStyles() {
     if (!cm) return;
     const $textarea = $('#send_textarea');
     const styles = window.getComputedStyle($textarea[0]);
-    
+
     const $cmElement = $(cm.getWrapperElement());
     $cmElement.css({
         fontFamily: styles.fontFamily,
@@ -153,7 +298,7 @@ function syncCodeMirrorStyles() {
         padding: styles.padding,
         flex: '1',
     });
-    
+
     // Custom CodeMirror CSS to match ST look and Smart Theme colors
     const styleId = 'st-markdown-cm-styles';
     $('#' + styleId).remove();
@@ -200,6 +345,9 @@ function syncCodeMirrorStyles() {
         
         .CodeMirror-cursor { border-left: 2px solid var(--SmartThemeBodyColor, white) !important; }
         .CodeMirror-selected { background: rgba(66, 133, 244, 0.15) !important; }
+        
+        /* Placeholder Styling */
+        .CodeMirror-placeholder { color: inherit !important; opacity: 0.4 !important; }
 
         /* Attempt to style native spellcheck underlines (Modern Browsers) */
         .CodeMirror *::spelling-error {
@@ -252,17 +400,21 @@ function updateChatSpacer() {
     }
 
     let height = 0;
-    
-    // Add height of the preview overlay if in "Above" mode
-    if (settings.enabled && settings.aboveInput) {
-        const container = document.getElementById('st-markdown-preview-container');
-        if (container && container.classList.contains('visible')) {
-            height += container.offsetHeight;
+
+    // Add additional user-configured spacer only if preview is visible or specifically enabled
+    if (settings.enabled) {
+        if (settings.aboveInput) {
+            const container = document.getElementById('st-markdown-preview-container');
+            if (container && container.classList.contains('visible')) {
+                height += container.offsetHeight;
+                height += parseInt(settings.additionalSpacer) || 0;
+            }
+        } else {
+            // In WYSIWYG mode, we usually don't need the extra spacer unless the user really wants it
+            // For now, let's keep it 0 to avoid the "extra space" issue reported
+            height = 0;
         }
     }
-
-    // Add additional user-configured spacer
-    height += parseInt(settings.additionalSpacer) || 0;
 
     spacer.style.height = `${height}px`;
 }
@@ -295,6 +447,27 @@ function updatePreview() {
             cm = null;
         }
         $aboveContainer.removeClass('visible');
+
+        // Restore native styles and proxies
+        const el = $textarea[0];
+        if (el) {
+            $(el).css({
+                position: '',
+                top: '',
+                left: '',
+                width: '',
+                height: '',
+                opacity: '',
+                pointerEvents: '',
+                zIndex: '',
+                display: ''
+            });
+            if (el.originalGetBoundingClientRect) {
+                el.getBoundingClientRect = el.originalGetBoundingClientRect;
+                el.getClientRects = el.originalGetClientRects;
+            }
+        }
+
         updateChatSpacer();
         return;
     }
@@ -307,8 +480,27 @@ function updatePreview() {
         if (cm) {
             cm.toTextArea();
             cm = null;
+            // Restore native styles
+            $('#send_textarea').css({
+                position: '',
+                top: '',
+                left: '',
+                width: '',
+                height: '',
+                opacity: '',
+                pointerEvents: '',
+                zIndex: '',
+                display: ''
+            });
+
+            // Restore native bounding box methods if they were proxied
+            const el = $textarea[0];
+            if (el && el.originalGetBoundingClientRect) {
+                el.getBoundingClientRect = el.originalGetBoundingClientRect;
+                el.getClientRects = el.originalGetClientRects;
+            }
         }
-        
+
         const input = $textarea.val();
         if (!input || input.trim() === '') {
             $aboveContainer.removeClass('visible');
@@ -425,7 +617,7 @@ async function init() {
             }
         }
         updateChatSpacer();
-        setTimeout(() => scrollToBottom(force = true), 500);
+        setTimeout(() => scrollToBottom(true), 500);
     });
 
     context.eventSource.on(context.eventTypes.USER_MESSAGE_RENDERED, () => {
