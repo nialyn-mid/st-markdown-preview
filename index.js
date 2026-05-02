@@ -1,5 +1,5 @@
-import { getContext, renderExtensionTemplateAsync } from '../../extensions.js';
-import { debounce } from '../../utils.js';
+import { getContext, renderExtensionTemplateAsync } from '/scripts/extensions.js';
+import { debounce } from '/scripts/utils.js';
 
 const MODULE_NAME = 'st-markdown-preview';
 const debounce_timeout = {
