@@ -102,11 +102,74 @@
     transition: opacity 0.2s;
 }
 
+/* Inline Mirror Preview */
+#st-inline-preview {
+    display: none;
+    position: absolute;
+    pointer-events: none;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    z-index: 1;
+    overflow-y: hidden; /* Scroll is synced via JS */
+    color: var(--SmartThemeBodyColor);
+    background: transparent;
+    border: none !important; /* Visual border is on the textarea */
+    text-shadow: 0px 0px calc(var(--shadowWidth) * 1px) var(--SmartThemeShadowColor);
+}
+
+#st-inline-preview.visible {
+    display: block;
+}
+
+/* Make real textarea text transparent but keep cursor (caret) */
+#send_textarea.st-inline-active {
+    color: transparent !important;
+    background-color: transparent !important;
+    caret-color: var(--SmartThemeBodyColor, white) !important;
+    z-index: 2;
+    text-shadow: none !important;
+}
+
+/* Markdown Highlighting for Inline Mirror */
+.md-bold {
+    font-weight: 900;
+    color: var(--SmartThemeEmColor, inherit);
+}
+
+.md-italic {
+    font-style: italic;
+    opacity: 0.9;
+}
+
+.md-strike {
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+
+.md-code {
+    font-family: var(--mono-font-family, monospace);
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 0 4px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.md-quote {
+    color: var(--SmartThemeQuoteColor, inherit);
+    font-style: italic;
+}
+
+.md-header {
+    font-weight: 900;
+    color: var(--SmartThemeEmColor, inherit);
+    text-decoration: underline;
+}
+
 #st-markdown-preview-spacer {
     width: 100%;
     background-color: transparent;
     transition: height 0.15s ease-out;
     pointer-events: none;
     flex-shrink: 0;
-    min-height: 0; /* Allow it to be 0 when set to 0 */
+    min-height: 0;
 }

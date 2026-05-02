@@ -6,7 +6,7 @@ const MODULE_NAME = 'st-markdown-preview';
 
 const defaultSettings = {
     enabled: true,
-    aboveInput: true,
+    aboveInput: false,
     additionalSpacer: 0,
 };
 
@@ -109,37 +109,150 @@ function updateChatSpacer() {
 }
 
 /**
- * Updates the preview content and visibility.
+ * Highlighting regex-based parser for inline preview.
+ * Preserves delimiters while applying styling.
  */
-function updatePreview() {
+function highlightMarkdown(text) {
+    if (!text) return '';
+
+    // Escape HTML
+    let html = text.replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // Handle newlines
+    html = html.replace(/\n/g, '<br/>');
+
+    // Bold **text**
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="md-bold">**$1**</strong>');
+    // Bold __text__
+    html = html.replace(/__(.*?)__/g, '<strong class="md-bold">__$1__</strong>');
+    // Italic *text*
+    html = html.replace(/\*(.*?)\*/g, '<em class="md-italic">*$1*</em>');
+    // Italic _text_
+    html = html.replace(/_(.*?)_/g, '<em class="md-italic">_$1_</em>');
+    // Strikethrough ~~text~~
+    html = html.replace(/~~(.*?)~~/g, '<del class="md-strike">~~$1~~</del>');
+    // Inline Code `text`
+    html = html.replace(/`(.*?)`/g, '<code class="md-code">`$1`</code>');
+    // Blockquote
+    html = html.replace(/^(&gt; .*)/gm, '<span class="md-quote">$1</span>');
+    // Headers
+    html = html.replace(/^(#+ .*)/gm, '<span class="md-header">$1</span>');
+
+    // Add a trailing space to fix cursor alignment issues on empty lines
+    return html + ' ';
+}
+
+/**
+ * Synchronizes the mirror div's scroll position with the textarea.
+ */
+function syncScroll() {
+    const textarea = document.getElementById('send_textarea');
+    const mirror = document.getElementById('st-inline-preview');
+    if (textarea && mirror) {
+        mirror.scrollTop = textarea.scrollTop;
+        mirror.scrollLeft = textarea.scrollLeft;
+    }
+}
+
+/**
+ * Synchronizes layout and styles from the textarea to the mirror div.
+ */
+function syncStyles() {
+    const $textarea = $('#send_textarea');
+    const $mirror = $('#st-inline-preview');
+    if (!$textarea.length || (!$mirror.length && settings.enabled)) return;
+
+    const styles = window.getComputedStyle($textarea[0]);
+    const properties = [
+        'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing',
+        'lineHeight', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+        'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+        'boxSizing', 'textAlign', 'textTransform', 'wordBreak', 'overflowWrap', 'whiteSpace', 'opacity'
+    ];
+
+    const css = {};
+    properties.forEach(prop => {
+        css[prop] = styles[prop];
+    });
+
+    // Ensure opacity is visible
+    css.opacity = '1';
+
+    // Match dimensions
+    css.width = $textarea.outerWidth() + 'px';
+    css.height = $textarea.outerHeight() + 'px';
+    css.top = $textarea.position().top + 'px';
+    css.left = $textarea.position().left + 'px';
+
+    $mirror.css(css);
+}
+
+/**
+ * Updates the preview content and visibility.
+ * @param {boolean} immediate - If true, skip debouncing (used for inline mirror).
+ */
+function updatePreview(immediate = false) {
+    const $aboveContainer = $('#st-markdown-preview-container');
+    const $inlineMirror = $('#st-inline-preview');
+    const $textarea = $('#send_textarea');
+
     if (!settings.enabled) {
-        $('#st-markdown-preview-container').removeClass('visible');
+        $aboveContainer.removeClass('visible');
+        $inlineMirror.removeClass('visible');
+        $textarea.removeClass('st-inline-active');
         updateChatSpacer();
         return;
     }
 
-    const input = $('#send_textarea').val();
-    if (!input || input.trim() === '') {
-        $('#st-markdown-preview-container').removeClass('visible');
-        updateChatSpacer();
-        return;
+    const input = $textarea.val();
+
+    // Mode 1: Above Input (Overlay)
+    if (settings.aboveInput) {
+        $inlineMirror.removeClass('visible');
+        $textarea.removeClass('st-inline-active');
+
+        if (!input || input.trim() === '') {
+            $aboveContainer.removeClass('visible');
+            updateChatSpacer();
+            return;
+        }
+
+        // Debounce expensive rendering
+        if (!immediate) {
+            updatePreviewDebounced();
+            return;
+        }
+
+        const context = getContext();
+        const name1 = context.name1 || 'You';
+        let formattedText = context.messageFormatting(input, name1, false, true, -1);
+        $('#st-markdown-preview-content').empty().append($('<div class="mes_text"></div>').html(formattedText));
+        $aboveContainer.addClass('visible');
+    }
+    // Mode 2: Inline Preview (Mirror)
+    else {
+        $aboveContainer.removeClass('visible');
+
+        if (!input || input.trim() === '') {
+            $inlineMirror.removeClass('visible');
+            $textarea.removeClass('st-inline-active');
+            updateChatSpacer();
+            return;
+        }
+
+        $inlineMirror.html(highlightMarkdown(input));
+        $inlineMirror.addClass('visible');
+        $textarea.addClass('st-inline-active');
+        syncStyles();
+        syncScroll();
     }
 
-    const context = getContext();
-    const name1 = context.name1 || 'You';
-
-    // Format the text using SillyTavern's native formatting
-    let formattedText = context.messageFormatting(input, name1, false, true, -1);
-
-    // Wrap in mes_text for consistent ST styling
-    $('#st-markdown-preview-content').empty().append($('<div class="mes_text"></div>').html(formattedText));
-    $('#st-markdown-preview-container').addClass('visible');
-
-    // Update spacer immediately, but the ResizeObserver will handle size changes
     updateChatSpacer();
 }
 
-const updatePreviewDebounced = debounce(updatePreview, debounce_timeout.short);
+const updatePreviewDebounced = debounce(() => updatePreview(true), debounce_timeout.short);
 
 /**
  * Initializes the settings UI in the extensions menu.
@@ -148,13 +261,13 @@ function initSettingsUI() {
     $('#st-markdown-preview-enabled').prop('checked', settings.enabled).on('change', function () {
         settings.enabled = !!$(this).prop('checked');
         saveSettings();
-        updatePreview();
+        updatePreview(true);
     });
 
     $('#st-markdown-preview-above-input').prop('checked', settings.aboveInput).on('change', function () {
         settings.aboveInput = !!$(this).prop('checked');
         saveSettings();
-        updatePreview();
+        updatePreview(true);
     });
 
     const $slider = $('#st-markdown-preview-spacer-slider');
@@ -190,8 +303,13 @@ async function init() {
     const $previewContainer = $preview.filter('#st-markdown-preview-container');
     const $settings = $preview.filter('#st-markdown-preview-settings');
 
-    // Inject preview container
+    // Inject preview container (for Above mode)
     $('#send_form').prepend($previewContainer);
+
+    // Inject mirror div (for Inline mode)
+    if (!$('#st-inline-preview').length) {
+        $('<div id="st-inline-preview"></div>').insertBefore('#send_textarea');
+    }
 
     // Inject settings
     $('#extensions_settings').append($settings);
@@ -210,18 +328,27 @@ async function init() {
     // ResizeObserver to handle preview height changes (text wrapping, etc.)
     const resizeObserver = new ResizeObserver(() => {
         updateChatSpacer();
+        if (!settings.aboveInput) syncStyles();
     });
     if ($previewContainer[0]) {
         resizeObserver.observe($previewContainer[0]);
     }
 
+    // Also observe the textarea for inline mode sync
+    const textarea = document.getElementById('send_textarea');
+    if (textarea) {
+        resizeObserver.observe(textarea);
+        textarea.addEventListener('scroll', syncScroll);
+    }
+
     // Listen for input
     $(document).on('input', '#send_textarea', () => {
-        updatePreviewDebounced();
+        // Mode 2 (Inline) is instant, Mode 1 (Above) is debounced
+        updatePreview(false);
     });
 
     $(document).on('focus', '#send_textarea', () => {
-        updatePreview();
+        updatePreview(true);
     });
 
     const context = getContext();
