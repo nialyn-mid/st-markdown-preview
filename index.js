@@ -95,9 +95,17 @@ async function initCodeMirror() {
     // Ensure the editor doesn't collapse the flex container
     $(wrapper).css({
         flex: '1',
-        minHeight: '40px',
         display: 'flex',
-        flexDirection: 'column'
+        flexDirection: 'column',
+        justifyContent: 'center'
+    });
+
+    // Focus the end of the text when clicking in the empty areas of the bar
+    wrapper.addEventListener('click', (e) => {
+        if (e.target === wrapper || e.target.classList.contains('CodeMirror-scroll')) {
+            cm.focus();
+            cm.setCursor(cm.lineCount(), 0);
+        }
     });
 
     let isSyncing = false;
@@ -289,13 +297,19 @@ function syncCodeMirrorStyles() {
     const styles = window.getComputedStyle($textarea[0]);
 
     const $cmElement = $(cm.getWrapperElement());
+    const barHeight = $textarea.outerHeight() || 40;
+    const fontSize = parseFloat(styles.fontSize) || 15;
+    let lh = parseFloat(styles.lineHeight);
+    if (isNaN(lh)) lh = fontSize * 1.2;
+    const vPadding = Math.max(0, (barHeight - lh) / 2);
+
     $cmElement.css({
         fontFamily: styles.fontFamily,
         fontSize: styles.fontSize,
         lineHeight: styles.lineHeight,
         color: styles.color,
         background: 'transparent',
-        padding: styles.padding,
+        padding: '0',
         flex: '1',
     });
 
@@ -308,15 +322,18 @@ function syncCodeMirrorStyles() {
         .CodeMirror { 
             flex: 1 !important;
             order: 2 !important;
-            height: auto; 
-            min-height: ${$textarea.outerHeight()}px; 
+            height: auto !important; 
+            min-height: ${barHeight}px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
             background: transparent !important; 
             color: inherit !important;
             border: none !important;
             font-family: inherit !important;
         }
-        .CodeMirror-scroll { height: auto; overflow: visible; min-height: 100%; }
-        .CodeMirror-lines { padding: 0; }
+        .CodeMirror-scroll { height: auto; overflow: visible; }
+        .CodeMirror-lines { padding: 0 ${styles.paddingRight} 0 ${styles.paddingLeft} !important; }
         
         /* Smart Theme Color Mapping */
         .cm-header { font-weight: bold; color: var(--SmartThemeEmColor) !important; }
