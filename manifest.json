@@ -1,0 +1,11 @@
+{
+    "display_name": "Markdown Input Preview",
+    "loading_order": 20,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Nialyn Mid",
+    "version": "0.0.1",
+    "homePage": "https://github.com/nialyn-mid/st-markdown-preview"
+}

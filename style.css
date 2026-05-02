@@ -1,0 +1,107 @@
+/* Markdown Input Preview - Smart Theme Integration */
+
+#send_form {
+    position: relative;
+}
+
+#st-markdown-preview-container {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 0;
+    right: 0;
+    background-color: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.95));
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 5px;
+    padding: 12px;
+    max-height: 40vh;
+    overflow-y: auto;
+    width: 100%;
+    box-sizing: border-box;
+    z-index: 2000;
+    box-shadow: 0 0 calc(var(--shadowWidth) * 5px) var(--SmartThemeShadowColor);
+    opacity: 0;
+    transform: translateY(5px);
+    transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+    backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
+}
+
+#st-markdown-preview-container.visible {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+#st-markdown-preview-header {
+    font-size: 0.7em;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--SmartThemeEmColor, #888);
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+    display: flex;
+    justify-content: space-between;
+    text-shadow: 0px 0px calc(var(--shadowWidth) * 1px) var(--SmartThemeShadowColor);
+}
+
+#st-markdown-preview-content {
+    color: var(--SmartThemeBodyColor, #ccc);
+    line-height: 1.5;
+    text-shadow: 0px 0px calc(var(--shadowWidth) * 1px) var(--SmartThemeShadowColor);
+}
+
+/* Fix for quotes - match ST Smart Theme behavior */
+#st-markdown-preview-content q {
+    quotes: none;
+    color: var(--SmartThemeQuoteColor, inherit);
+}
+#st-markdown-preview-content q::before,
+#st-markdown-preview-content q::after {
+    content: none;
+}
+
+/* Inherit Smart Theme message styling */
+#st-markdown-preview-content .mes_text {
+    background: transparent !important;
+    padding: 0 !important;
+    border: none !important;
+    color: inherit !important;
+    font-size: inherit !important;
+    font-family: var(--mainFontFamily, inherit) !important;
+}
+
+#st-markdown-preview-content blockquote {
+    border-left: 3px solid var(--SmartThemeQuoteColor, var(--grey-color));
+    padding: 2px 12px;
+    margin: 8px 0;
+    background: rgba(255, 255, 255, 0.03);
+    opacity: 0.9;
+}
+
+#st-markdown-preview-content code {
+    background-color: rgba(0, 0, 0, 0.4);
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-family: var(--mainFontFamily, monospace); /* Use theme font or mono */
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+}
+
+#st-markdown-preview-content p {
+    margin-bottom: 0.8em;
+}
+
+#st-markdown-preview-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Transition for the "PREVIEW" label appearance */
+#st-markdown-preview-header span {
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+#st-markdown-preview-container:hover #st-markdown-preview-header span {
+    opacity: 1;
+}
