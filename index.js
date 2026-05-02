@@ -338,7 +338,13 @@ function saveSettings() {
 
 const saveSettingsDebounced = debounce(() => {
     const context = getContext();
-    context.saveSettings();
+    if (typeof context.saveSettings === 'function') {
+        context.saveSettings();
+    } else if (typeof context.saveSettingsDebounced === 'function') {
+        context.saveSettingsDebounced();
+    } else if (typeof window.saveSettingsApp === 'function') {
+        window.saveSettingsApp();
+    }
 }, 2000);
 
 /**
