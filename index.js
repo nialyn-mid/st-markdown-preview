@@ -12,6 +12,7 @@ const defaultSettings = {
     enabled: true,
     aboveInput: false,
     autocorrect: true,
+    blurOnSend: true,
     additionalSpacer: 0,
     logLevel: 2, // Default to WARN
 };
@@ -183,12 +184,22 @@ async function initCodeMirror() {
     Object.defineProperty(textarea, 'value', {
         get: () => cm ? cm.getValue() : descValue.get.call(textarea),
         set: (v) => {
+            const isClearing = (v === '' || v === null || v === undefined);
             if (cm && !isSyncing) {
                 isSyncing = true;
-                cm.setValue(v);
+                cm.setValue(v || '');
                 isSyncing = false;
+
+                if (isClearing && settings.blurOnSend) {
+                    logger.debug('Input cleared via value setter, blurring CodeMirror.');
+                    cm.getInputField().blur();
+                }
             } else {
                 descValue.set.call(textarea, v);
+                if (isClearing && settings.blurOnSend && !isSyncing) {
+                    logger.debug('Input cleared via value setter, blurring textarea.');
+                    textarea.blur();
+                }
             }
         },
         configurable: true
@@ -260,13 +271,22 @@ async function initCodeMirror() {
         jQuery.fn.originalVal = jQuery.fn.val;
         jQuery.fn.val = function (value) {
             const res = jQuery.fn.originalVal.apply(this, arguments);
+            const isClearing = arguments.length > 0 && (value === '' || value === null || value === undefined);
+
             if (arguments.length > 0 && this.is('#send_textarea') && cm && !isSyncing) {
                 const currentVal = cm.getValue();
                 if (currentVal !== value) {
                     isSyncing = true;
-                    cm.setValue(value);
+                    cm.setValue(value || '');
                     isSyncing = false;
                 }
+                if (isClearing && settings.blurOnSend) {
+                    logger.debug('Input cleared via jQuery.val(), blurring CodeMirror.');
+                    cm.getInputField().blur();
+                }
+            } else if (isClearing && this.is('#send_textarea') && settings.blurOnSend && !isSyncing) {
+                logger.debug('Input cleared via jQuery.val(), blurring textarea.');
+                this.blur();
             }
             return res;
         };
@@ -335,14 +355,14 @@ function syncCodeMirrorStyles() {
         $wrapper.on('mousedown.st_markdown_fix', function (e) {
             const rect = this.getBoundingClientRect();
             const y = e.clientY - rect.top;
-            
+
             // If clicking in the vertical padding area, manually place the cursor
             if (y < vPadding || y > rect.height - vPadding) {
                 e.preventDefault();
                 cm.focus();
-                const coords = cm.coordsChar({ 
-                    left: e.clientX, 
-                    top: rect.top + vPadding + (lh / 2) 
+                const coords = cm.coordsChar({
+                    left: e.clientX,
+                    top: rect.top + vPadding + (lh / 2)
                 }, 'window');
                 cm.setCursor(coords);
             }
@@ -511,7 +531,7 @@ function updatePreview() {
             cm = null;
         }
         $container.removeClass('visible');
-        
+
         // Restore native styles
         const el = $textarea[0];
         if (el) {
@@ -631,15 +651,20 @@ function initSettingsUI() {
         }
     });
 
+    $('#st-markdown-preview-blur-on-send').prop('checked', settings.blurOnSend).on('change', function () {
+        settings.blurOnSend = !!$(this).prop('checked');
+        saveSettings();
+    });
+
     // Bind additional spacer events
     const $spacerSlider = $('#st-markdown-preview-spacer-slider');
     const $spacerInput = $('#st-markdown-preview-spacer-slider_value');
-    
+
     // Initialize values
     $spacerSlider.val(settings.additionalSpacer || 0);
     $spacerInput.val(settings.additionalSpacer || 0);
 
-    $spacerSlider.on('input', function() {
+    $spacerSlider.on('input', function () {
         const val = parseInt($(this).val());
         $spacerInput.val(val);
         settings.additionalSpacer = val;
@@ -647,7 +672,7 @@ function initSettingsUI() {
         updateChatSpacer();
     });
 
-    $spacerInput.on('input', function() {
+    $spacerInput.on('input', function () {
         const val = parseInt($(this).val()) || 0;
         $spacerSlider.val(val);
         settings.additionalSpacer = val;
@@ -658,7 +683,7 @@ function initSettingsUI() {
     // Bind log level
     const $logLevel = $('#st-markdown-preview-log-level');
     $logLevel.val(settings.logLevel);
-    $logLevel.on('change', function() {
+    $logLevel.on('change', function () {
         const val = parseInt($(this).val());
         settings.logLevel = val;
         import('./js/logger.js').then(m => m.setLogLevel(val));
