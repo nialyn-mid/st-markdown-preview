@@ -236,12 +236,6 @@
     margin-bottom: 2px;
 }
 
-/* Number Selector Styling - Consistent with Polyceph/ST core */
-.neo-range-input {
-    width: 60px !important;
-    text-align: center;
-}
-
 .st-markdown-preview-settings-group select {
     width: 100%;
 }
