@@ -345,7 +345,7 @@ function syncCodeMirrorStyles() {
         const $cmElement = $(cm.getWrapperElement());
 
         // Base height on the original textarea, with an 18px minimum for a sleeker look
-        const barHeight = Math.min(60, Math.max(18, $textarea.outerHeight() || 30));
+        const barHeight = Math.min(60, Math.max(18, $textarea.outerHeight() || 18));
         const fontSize = parseFloat(styles.fontSize) || 15;
         let lh = parseFloat(styles.lineHeight);
         if (isNaN(lh)) lh = fontSize * 1.1;
