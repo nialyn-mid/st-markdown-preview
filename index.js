@@ -317,15 +317,21 @@ function syncCodeMirrorStyles() {
         });
 
         // Patch jump-to-start behavior when clicking in the top padding
-        cm.off('mousedown.st_markdown_fix');
-        cm.on('mousedown.st_markdown_fix', function (instance, e) {
-            const rect = instance.getWrapperElement().getBoundingClientRect();
+        const $wrapper = $(cm.getWrapperElement());
+        $wrapper.off('mousedown.st_markdown_fix');
+        $wrapper.on('mousedown.st_markdown_fix', function (e) {
+            const rect = this.getBoundingClientRect();
             const y = e.clientY - rect.top;
-            if (y < vPadding) {
+            
+            // If clicking in the vertical padding area, manually place the cursor
+            if (y < vPadding || y > rect.height - vPadding) {
                 e.preventDefault();
-                instance.focus();
-                const coords = instance.coordsChar({ left: e.clientX, top: rect.top + vPadding + (lh / 2) }, 'window');
-                instance.setCursor(coords);
+                cm.focus();
+                const coords = cm.coordsChar({ 
+                    left: e.clientX, 
+                    top: rect.top + vPadding + (lh / 2) 
+                }, 'window');
+                cm.setCursor(coords);
             }
         });
 
