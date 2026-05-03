@@ -5,38 +5,49 @@
  * a single source of truth for external script dependencies.
  */
 
+import { logger } from './logger.js';
+
 /**
  * Attempts to import a module from various relative and absolute SillyTavern paths.
  * @param {string} fileName - The name of the script or folder to import (e.g., 'openai.js' or 'extensions/autocomplete')
  * @returns {Promise<any|null>} The imported module or null if not found.
  */
 async function tryImportST(fileName) {
-    // If it doesn't look like a direct file, try common entry points
-    const variations = fileName.endsWith('.js')
-        ? [fileName]
-        : [fileName + '.js', fileName + '/index.js', fileName + '/AutoComplete.js'];
+    // Determine the search variations
+    const variations = fileName.endsWith('.js') 
+        ? [fileName] 
+        : [
+            fileName + '/AutoComplete.js', // Most common for core
+            fileName + '/index.js',        // Common for extensions
+            fileName + '.js'               // Direct file
+        ];
 
+    // Priority roots - search absolute core paths first to avoid relative noise
     const roots = [
-        '../../',
+        '/scripts/',
         '../../../',
-        '../../scripts/',
+        '../../',
         '../../../scripts/',
-        '/scripts/'
+        '../../scripts/'
     ];
 
     for (const root of roots) {
         for (const variant of variations) {
             const path = root + variant;
             try {
+                // Try the import. Browser will log 404 if not found.
                 const module = await import(path);
-                if (module) return module;
+                if (module) {
+                    logger.debug(`Successfully imported "${fileName}" from: ${path}`);
+                    return module;
+                }
             } catch (e) {
-                // Continue to next possibility
+                // Fail silently and try next path
             }
         }
     }
 
-    console.warn(`[ST-Markdown] Could not find SillyTavern core script or extension: "${fileName}".`);
+    logger.warn(`Could not resolve SillyTavern module: "${fileName}"`);
     return null;
 }
 
@@ -44,5 +55,5 @@ async function tryImportST(fileName) {
  * Imports SillyTavern's AutoComplete.js module.
  */
 export async function getAutoCompleteModule() {
-    return await tryImportST('extensions/autocomplete');
+    return await tryImportST('autocomplete');
 }

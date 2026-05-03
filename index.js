@@ -1,6 +1,7 @@
 import { getContext, renderExtensionTemplateAsync } from '/scripts/extensions.js';
 import { debounce } from '/scripts/utils.js';
 import { getAutoCompleteModule } from './js/compat.js';
+import { logger } from './js/logger.js';
 
 const MODULE_NAME = 'st-markdown-preview';
 const debounce_timeout = {
@@ -11,6 +12,7 @@ const defaultSettings = {
     enabled: true,
     aboveInput: false,
     additionalSpacer: 0,
+    logLevel: 2, // Default to WARN
 };
 
 let settings = { ...defaultSettings };
@@ -46,7 +48,12 @@ async function initCodeMirror() {
     if (cm) return;
 
     const textarea = document.getElementById('send_textarea');
-    if (!textarea) return;
+    if (!textarea) {
+        logger.error('Required element #send_textarea not found. Initialization aborted.');
+        return;
+    }
+
+    logger.info('Initializing CodeMirror for chat input...');
 
     // Load CodeMirror from CDN if not already loaded
     if (typeof CodeMirror === 'undefined') {
@@ -66,6 +73,8 @@ async function initCodeMirror() {
         placeholder: textarea.placeholder || 'Type a message...',
     });
 
+    logger.info('CodeMirror instance created successfully.');
+
     const wrapper = cm.getWrapperElement();
 
     // Proxy bounding box methods so ST's AutoComplete finds the editor's position
@@ -76,12 +85,12 @@ async function initCodeMirror() {
     }
     textarea.getBoundingClientRect = () => {
         const rect = wrapper.getBoundingClientRect();
-        console.log(`[ST-Markdown] getBoundingClientRect: top=${rect.top} left=${rect.left} width=${rect.width} height=${rect.height}`);
+        logger.debug('getBoundingClientRect proxy:', rect);
         return rect;
     };
     textarea.getClientRects = () => {
         const rects = wrapper.getClientRects();
-        console.log(`[ST-Markdown] getClientRects: count=${rects.length}`);
+        logger.debug('getClientRects proxy count:', rects.length);
         return rects;
     };
 
@@ -220,9 +229,10 @@ async function initCodeMirror() {
                     }
                 };
                 ACClass.prototype.isPatched = true;
+                logger.info('Successfully patched AutoComplete for CodeMirror compatibility.');
             }
         } catch (e) {
-            console.error('[ST-Markdown] Failed to patch AutoComplete:', e);
+            logger.error('Failed to patch AutoComplete:', e);
         }
     };
     setupPatch();
@@ -282,48 +292,49 @@ async function initCodeMirror() {
  * Syncs the theme styles to CodeMirror.
  */
 function syncCodeMirrorStyles() {
-    if (!cm) return;
-    const $textarea = $('#send_textarea');
-    const styles = window.getComputedStyle($textarea[0]);
+    try {
+        if (!cm) return;
+        const $textarea = $('#send_textarea');
+        const styles = window.getComputedStyle($textarea[0]);
 
-    const $cmElement = $(cm.getWrapperElement());
+        const $cmElement = $(cm.getWrapperElement());
 
-    // Base height on the original textarea, with an 18px minimum for a sleeker look
-    const barHeight = Math.min(60, Math.max(18, $textarea.outerHeight() || 30));
-    const fontSize = parseFloat(styles.fontSize) || 15;
-    let lh = parseFloat(styles.lineHeight);
-    if (isNaN(lh)) lh = fontSize * 1.1;
-    const vPadding = Math.max(0, Math.floor((barHeight - lh) / 2));
+        // Base height on the original textarea, with an 18px minimum for a sleeker look
+        const barHeight = Math.min(60, Math.max(18, $textarea.outerHeight() || 30));
+        const fontSize = parseFloat(styles.fontSize) || 15;
+        let lh = parseFloat(styles.lineHeight);
+        if (isNaN(lh)) lh = fontSize * 1.1;
+        const vPadding = Math.max(0, Math.floor((barHeight - lh) / 2));
 
-    $cmElement.css({
-        fontFamily: styles.fontFamily,
-        fontSize: styles.fontSize,
-        lineHeight: styles.lineHeight,
-        color: styles.color,
-        background: 'transparent',
-        padding: '0',
-        flex: '1 1 0%',
-    });
+        $cmElement.css({
+            fontFamily: styles.fontFamily,
+            fontSize: styles.fontSize,
+            lineHeight: styles.lineHeight,
+            color: styles.color,
+            background: 'transparent',
+            padding: '0',
+            flex: '1 1 0%',
+        });
 
-    // Patch jump-to-start behavior when clicking in the top padding
-    cm.off('mousedown.st_markdown_fix');
-    cm.on('mousedown.st_markdown_fix', function(instance, e) {
-        const rect = instance.getWrapperElement().getBoundingClientRect();
-        const y = e.clientY - rect.top;
-        if (y < vPadding) {
-            e.preventDefault();
-            instance.focus();
-            const coords = instance.coordsChar({left: e.clientX, top: rect.top + vPadding + (lh/2)}, 'window');
-            instance.setCursor(coords);
-        }
-    });
+        // Patch jump-to-start behavior when clicking in the top padding
+        cm.off('mousedown.st_markdown_fix');
+        cm.on('mousedown.st_markdown_fix', function (instance, e) {
+            const rect = instance.getWrapperElement().getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            if (y < vPadding) {
+                e.preventDefault();
+                instance.focus();
+                const coords = instance.coordsChar({ left: e.clientX, top: rect.top + vPadding + (lh / 2) }, 'window');
+                instance.setCursor(coords);
+            }
+        });
 
-    // Custom CodeMirror CSS to match ST look and Smart Theme colors
-    const styleId = 'st-markdown-cm-styles';
-    $('#' + styleId).remove();
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.innerHTML = `
+        // Custom CodeMirror CSS to match ST look and Smart Theme colors
+        const styleId = 'st-markdown-cm-styles';
+        $('#' + styleId).remove();
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
         .CodeMirror { 
             flex: 1 1 0% !important;
             order: 2 !important;
@@ -401,10 +412,18 @@ function syncCodeMirrorStyles() {
         #rightSendForm { order: 3 !important; }
         #nonQRFormItems { display: flex !important; align-items: center !important; }
     `;
-    document.head.appendChild(style);
+        document.head.appendChild(style);
 
-    // Give the browser a moment to layout the flexbox before refreshing CM
-    setTimeout(() => cm.refresh(), 10);
+        // Give the browser a moment to layout the flexbox before refreshing CM
+        setTimeout(() => {
+            if (cm) {
+                cm.refresh();
+                logger.debug('CodeMirror styles synchronized with theme.');
+            }
+        }, 10);
+    } catch (e) {
+        logger.error('Failed to synchronize CodeMirror styles:', e);
+    }
 }
 
 /**
@@ -600,23 +619,34 @@ function initSettingsUI() {
         updatePreview();
     });
 
-    const $slider = $('#st-markdown-preview-spacer-slider');
-    const $input = $('#st-markdown-preview-additional-spacer');
-
-    $slider.val(settings.additionalSpacer).on('input', function () {
-        const val = parseInt($(this).val()) || 0;
-        $input.val(val);
+    // Bind additional spacer events
+    const $spacerSlider = $('#st-markdown-preview-spacer-slider');
+    const $spacerInput = $('#st-markdown-preview-additional-spacer');
+    
+    $spacerSlider.on('input', function() {
+        const val = parseInt($(this).val());
+        $spacerInput.val(val);
         settings.additionalSpacer = val;
         saveSettings();
         updateChatSpacer();
     });
 
-    $input.val(settings.additionalSpacer).on('input', function () {
+    $spacerInput.on('input', function() {
         const val = parseInt($(this).val()) || 0;
-        $slider.val(val);
+        $spacerSlider.val(val);
         settings.additionalSpacer = val;
         saveSettings();
         updateChatSpacer();
+    });
+
+    // Bind log level
+    const $logLevel = $('#st-markdown-preview-log-level');
+    $logLevel.val(settings.logLevel);
+    $logLevel.on('change', function() {
+        const val = parseInt($(this).val());
+        settings.logLevel = val;
+        import('./js/logger.js').then(m => m.setLogLevel(val));
+        saveSettings();
     });
 }
 
@@ -624,44 +654,51 @@ function initSettingsUI() {
  * Entry point for the extension.
  */
 async function init() {
-    loadSettings();
+    try {
+        loadSettings();
 
-    const previewHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'preview');
-    const $preview = $(previewHtml);
+        const previewHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'preview');
+        const $preview = $(previewHtml);
 
-    const $previewContainer = $preview.filter('#st-markdown-preview-container');
-    const $settings = $preview.filter('#st-markdown-preview-settings');
+        const $previewContainer = $preview.filter('#st-markdown-preview-container');
+        const $settings = $preview.filter('#st-markdown-preview-settings');
 
-    $('#send_form').prepend($previewContainer);
-    $('#extensions_settings').append($settings);
+        $('#send_form').prepend($previewContainer);
+        $('#extensions_settings').append($settings);
+        logger.info('Markdown Preview UI elements attached to chat.');
 
-    initSettingsUI();
+        initSettingsUI();
+        logger.info('Settings UI initialized.');
 
-    const chat = document.getElementById('chat');
-    if (chat) {
-        const observer = new MutationObserver(() => ensureChatSpacer());
-        observer.observe(chat, { childList: true });
-    }
-
-    const context = getContext();
-    context.eventSource.on(context.eventTypes.CHAT_LOADED, () => {
-        if (cm) {
-            const textarea = document.getElementById('send_textarea');
-            if (textarea && textarea.value !== cm.getValue()) {
-                cm.setValue(textarea.value);
-            }
+        const chat = document.getElementById('chat');
+        if (chat) {
+            const observer = new MutationObserver(() => ensureChatSpacer());
+            observer.observe(chat, { childList: true });
         }
-        updateChatSpacer();
-        setTimeout(() => scrollToBottom(true), 500);
-    });
 
-    context.eventSource.on(context.eventTypes.USER_MESSAGE_RENDERED, () => {
-        if (cm) cm.setValue('');
-        $('#st-markdown-preview-container').removeClass('visible');
-        updateChatSpacer();
-    });
+        const context = getContext();
+        context.eventSource.on(context.eventTypes.CHAT_LOADED, () => {
+            if (cm) {
+                const textarea = document.getElementById('send_textarea');
+                if (textarea && textarea.value !== cm.getValue()) {
+                    cm.setValue(textarea.value);
+                }
+            }
+            updateChatSpacer();
+            setTimeout(() => scrollToBottom(true), 500);
+        });
 
-    updatePreview();
+        context.eventSource.on(context.eventTypes.USER_MESSAGE_RENDERED, () => {
+            if (cm) cm.setValue('');
+            $('#st-markdown-preview-container').removeClass('visible');
+            updateChatSpacer();
+        });
+
+        updatePreview();
+        logger.info('Markdown Preview extension fully initialized.');
+    } catch (e) {
+        logger.error('Critical initialization error:', e);
+    }
 }
 
 jQuery(init);
