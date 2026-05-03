@@ -606,7 +606,7 @@ function initSettingsUI() {
 
     // Bind additional spacer events
     const $spacerSlider = $('#st-markdown-preview-spacer-slider');
-    const $spacerInput = $('#st-markdown-preview-additional-spacer');
+    const $spacerInput = $('#st-markdown-preview-spacer-slider_value');
     
     // Initialize values
     $spacerSlider.val(settings.additionalSpacer || 0);

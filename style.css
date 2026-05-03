@@ -136,12 +136,15 @@
 }
 
 @keyframes st-caret-blink {
-    to { visibility: hidden; }
+    to {
+        visibility: hidden;
+    }
 }
 
 .st-virtual-selection {
     position: absolute;
-    background-color: rgba(66, 133, 244, 0.4); /* Classic blue highlight */
+    background-color: rgba(66, 133, 244, 0.4);
+    /* Classic blue highlight */
     z-index: 5;
     pointer-events: none;
 }
@@ -186,14 +189,16 @@
 #send_textarea.st-inline-active {
     color: transparent !important;
     background-color: transparent !important;
-    caret-color: transparent !important; /* Hide native cursor */
+    caret-color: transparent !important;
+    /* Hide native cursor */
     z-index: 2;
     text-shadow: none !important;
     -webkit-text-fill-color: transparent;
 }
 
 #send_textarea.st-inline-active::selection {
-    background: transparent !important; /* Hide native selection */
+    background: transparent !important;
+    /* Hide native selection */
 }
 
 #st-markdown-preview-spacer {
@@ -203,4 +208,40 @@
     pointer-events: none;
     flex-shrink: 0;
     min-height: 0;
+}
+
+/* Settings UI Styling */
+.st-markdown-preview-settings-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 5px 0;
+}
+
+.st-markdown-preview-settings-row {
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+    padding-bottom: 4px;
+}
+
+.st-markdown-preview-settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.st-markdown-preview-settings-group small b {
+    display: block;
+    margin-bottom: 2px;
+}
+
+/* Number Selector Styling - Consistent with Polyceph/ST core */
+.neo-range-input {
+    width: 60px !important;
+    text-align: center;
+}
+
+.st-markdown-preview-settings-group select {
+    width: 100%;
 }

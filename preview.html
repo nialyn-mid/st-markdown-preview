@@ -12,30 +12,31 @@
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <div class="flex-container">
-                <label class="checkbox_label" for="st-markdown-preview-enabled">
-                    <input id="st-markdown-preview-enabled" type="checkbox" checked />
-                    <span data-i18n="Enable extension">Enable extension</span>
-                </label>
-                <label class="checkbox_label" for="st-markdown-preview-above-input">
-                    <input id="st-markdown-preview-above-input" type="checkbox" checked />
-                    <span data-i18n="Preview above input">Preview above input</span>
-                </label>
-                <div class="alignitemscenter flex-container flexFlowColumn flexGrow flexShrink gap0 flexBasis48p">
-                    <small>
-                        <span style="font-weight: bold; margin-bottom: 2px; display: block;"
-                            data-i18n="Additional Chat Spacer (px)">Additional Chat Spacer (px)</span>
-                    </small>
-                    <input class="neo-range-slider" type="range" id="st-markdown-preview-spacer-slider" min="0"
-                        max="500" step="1" value="0">
-                    <input class="neo-range-input" type="number" id="st-markdown-preview-additional-spacer" min="0"
-                        max="500" step="1" value="0">
+            <div class="st-markdown-preview-settings-container">
+                <div class="st-markdown-preview-settings-row">
+                    <label class="checkbox_label" for="st-markdown-preview-enabled">
+                        <input id="st-markdown-preview-enabled" type="checkbox" checked />
+                        <span data-i18n="Enable extension">Enable extension</span>
+                    </label>
+                    <label class="checkbox_label" for="st-markdown-preview-above-input">
+                        <input id="st-markdown-preview-above-input" type="checkbox" checked />
+                        <span data-i18n="Preview above input">Preview above input</span>
+                    </label>
                 </div>
-                <div class="alignitemscenter flex-container flexFlowColumn flexGrow flexShrink gap0 flexBasis48p">
-                    <small>
-                        <span style="font-weight: bold; margin-bottom: 2px; display: block;" data-i18n="Log Level">Log Level</span>
-                    </small>
-                    <select id="st-markdown-preview-log-level" class="text_pole" style="width: 100%;">
+                
+                <div class="st-markdown-preview-settings-group">
+                    <div class="alignitemscenter flex-container flexFlowColumn flexGrow flexShrink gap0 flexBasis48p">
+                        <small>
+                            <b data-i18n="Additional Chat Spacer (px)">Additional Chat Spacer (px)</b>
+                        </small>
+                        <input class="neo-range-slider" type="range" id="st-markdown-preview-spacer-slider" min="0" max="500" step="1" value="0">
+                        <input class="neo-range-input" type="number" id="st-markdown-preview-spacer-slider_value" data-for="st-markdown-preview-spacer-slider" min="0" max="500" step="1" value="0">
+                    </div>
+                </div>
+
+                <div class="st-markdown-preview-settings-group">
+                    <small><b data-i18n="Log Level">Log Level</b></small>
+                    <select id="st-markdown-preview-log-level" class="text_pole">
                         <option value="0" data-i18n="None">None</option>
                         <option value="1" data-i18n="Error">Error</option>
                         <option value="2" data-i18n="Warn">Warn</option>
