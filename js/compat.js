@@ -7,28 +7,36 @@
 
 /**
  * Attempts to import a module from various relative and absolute SillyTavern paths.
- * @param {string} fileName - The name of the script to import (e.g., 'openai.js')
+ * @param {string} fileName - The name of the script or folder to import (e.g., 'openai.js' or 'extensions/autocomplete')
  * @returns {Promise<any|null>} The imported module or null if not found.
  */
 async function tryImportST(fileName) {
-    const paths = [
-        `../../${fileName}`,
-        `../../../${fileName}`,
-        `../../scripts/${fileName}`,
-        `../../../scripts/${fileName}`,
-        `/scripts/${fileName}` // Absolute fallback
+    // If it doesn't look like a direct file, try common entry points
+    const variations = fileName.endsWith('.js')
+        ? [fileName]
+        : [fileName + '.js', fileName + '/index.js', fileName + '/AutoComplete.js'];
+
+    const roots = [
+        '../../',
+        '../../../',
+        '../../scripts/',
+        '../../../scripts/',
+        '/scripts/'
     ];
 
-    for (const path of paths) {
-        try {
-            const module = await import(path);
-            if (module) return module;
-        } catch (e) {
-            // Silently continue to next path
+    for (const root of roots) {
+        for (const variant of variations) {
+            const path = root + variant;
+            try {
+                const module = await import(path);
+                if (module) return module;
+            } catch (e) {
+                // Continue to next possibility
+            }
         }
     }
 
-    console.warn(`[ST-Markdown] Could not find SillyTavern core script "${fileName}".`);
+    console.warn(`[ST-Markdown] Could not find SillyTavern core script or extension: "${fileName}".`);
     return null;
 }
 
@@ -36,5 +44,5 @@ async function tryImportST(fileName) {
  * Imports SillyTavern's AutoComplete.js module.
  */
 export async function getAutoCompleteModule() {
-    return await tryImportST('autocomplete/AutoComplete.js');
+    return await tryImportST('extensions/autocomplete');
 }
