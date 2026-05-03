@@ -459,24 +459,15 @@ function updateChatSpacer() {
         return;
     }
 
-    let height = 0;
+    let height = parseInt(settings.additionalSpacer) || 0;
 
-    // Add additional user-configured spacer only if preview is visible or specifically enabled
-    if (settings.enabled) {
-        if (settings.aboveInput) {
-            const container = document.getElementById('st-markdown-preview-container');
-            if (container && container.classList.contains('visible')) {
-                height += container.offsetHeight;
-                height += parseInt(settings.additionalSpacer) || 0;
-            }
-        } else {
-            // In WYSIWYG mode, we usually don't need the extra spacer unless the user really wants it
-            // For now, let's keep it 0 to avoid the "extra space" issue reported
-            height = 0;
-        }
+    const $container = $('#st-markdown-preview-container');
+    if ($container.hasClass('visible')) {
+        height += $container.outerHeight() || 0;
     }
 
-    spacer.style.height = `${height}px`;
+    spacer.style.height = height + 'px';
+    spacer.style.minHeight = height + 'px';
 }
 
 /**
@@ -498,7 +489,7 @@ function scrollToBottom(force = false) {
  * Updates the preview content and visibility.
  */
 function updatePreview() {
-    const $aboveContainer = $('#st-markdown-preview-container');
+    const $container = $('#st-markdown-preview-container');
     const $textarea = $('#send_textarea');
 
     if (!settings.enabled) {
@@ -506,75 +497,63 @@ function updatePreview() {
             cm.toTextArea();
             cm = null;
         }
-        $aboveContainer.removeClass('visible');
-
-        // Restore native styles and proxies
+        $container.removeClass('visible');
+        
+        // Restore native styles
         const el = $textarea[0];
         if (el) {
             $(el).css({
-                position: '',
-                top: '',
-                left: '',
-                width: '',
-                height: '',
-                opacity: '',
-                pointerEvents: '',
-                zIndex: '',
-                display: ''
+                position: '', top: '', left: '', width: '', height: '',
+                opacity: '', pointerEvents: '', zIndex: '', display: ''
             });
             if (el.originalGetBoundingClientRect) {
                 el.getBoundingClientRect = el.originalGetBoundingClientRect;
                 el.getClientRects = el.originalGetClientRects;
             }
         }
-
         updateChatSpacer();
         return;
     }
 
-    if (!settings.aboveInput) {
-        $aboveContainer.removeClass('visible');
-        if (!cm) initCodeMirror();
-        updateChatSpacer();
-    } else {
+    // Handle Mode Switching
+    if (settings.aboveInput) {
+        // PREVIEW BOX MODE: Use native textarea, show box above
         if (cm) {
             cm.toTextArea();
             cm = null;
             // Restore native styles
-            $('#send_textarea').css({
-                position: '',
-                top: '',
-                left: '',
-                width: '',
-                height: '',
-                opacity: '',
-                pointerEvents: '',
-                zIndex: '',
-                display: ''
-            });
-
-            // Restore native bounding box methods if they were proxied
             const el = $textarea[0];
-            if (el && el.originalGetBoundingClientRect) {
-                el.getBoundingClientRect = el.originalGetBoundingClientRect;
-                el.getClientRects = el.originalGetClientRects;
+            if (el) {
+                $(el).css({
+                    position: '', top: '', left: '', width: '', height: '',
+                    opacity: '', pointerEvents: '', zIndex: '', display: ''
+                });
+                if (el.originalGetBoundingClientRect) {
+                    el.getBoundingClientRect = el.originalGetBoundingClientRect;
+                    el.getClientRects = el.originalGetClientRects;
+                }
             }
         }
 
         const input = $textarea.val();
-        if (!input || input.trim() === '') {
-            $aboveContainer.removeClass('visible');
-            updateChatSpacer();
-            return;
+        if (input && input.trim() !== '') {
+            const context = getContext();
+            const name1 = context.name1 || 'You';
+            const formattedText = context.messageFormatting(input, name1, false, true, -1);
+            $('#st-markdown-preview-content').empty().append($('<div class="mes_text"></div>').html(formattedText));
+            $container.addClass('visible');
+        } else {
+            $container.removeClass('visible');
         }
-
-        const context = getContext();
-        const name1 = context.name1 || 'You';
-        let formattedText = context.messageFormatting(input, name1, false, true, -1);
-        $('#st-markdown-preview-content').empty().append($('<div class="mes_text"></div>').html(formattedText));
-        $aboveContainer.addClass('visible');
-        updateChatSpacer();
+    } else {
+        // OVERLAY MODE: Use CodeMirror on the input bar
+        $container.removeClass('visible');
+        if (!cm) {
+            initCodeMirror();
+        }
     }
+
+    updateChatSpacer();
 }
 
 const updatePreviewDebounced = debounce(updatePreview, debounce_timeout.short);
@@ -629,6 +608,10 @@ function initSettingsUI() {
     const $spacerSlider = $('#st-markdown-preview-spacer-slider');
     const $spacerInput = $('#st-markdown-preview-additional-spacer');
     
+    // Initialize values
+    $spacerSlider.val(settings.additionalSpacer || 0);
+    $spacerInput.val(settings.additionalSpacer || 0);
+
     $spacerSlider.on('input', function() {
         const val = parseInt($(this).val());
         $spacerInput.val(val);
@@ -675,6 +658,11 @@ async function init() {
 
         initSettingsUI();
         logger.info('Settings UI initialized.');
+
+        // Add listener to native textarea for when CodeMirror is disabled (Above Input mode)
+        $('#send_textarea').on('input.st_markdown_preview', () => {
+            if (!cm) updatePreviewDebounced();
+        });
 
         const chat = document.getElementById('chat');
         if (chat) {
