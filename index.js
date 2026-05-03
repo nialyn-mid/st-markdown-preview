@@ -11,6 +11,7 @@ const debounce_timeout = {
 const defaultSettings = {
     enabled: true,
     aboveInput: false,
+    autocorrect: true,
     additionalSpacer: 0,
     logLevel: 2, // Default to WARN
 };
@@ -68,10 +69,22 @@ async function initCodeMirror() {
         lineWrapping: true,
         scrollbarStyle: null,
         viewportMargin: Infinity,
-        spellcheck: true,
+        spellcheck: settings.autocorrect,
         inputStyle: 'contenteditable',
         placeholder: textarea.placeholder || 'Type a message...',
     });
+
+    // Apply mobile-friendly attributes to the input field
+    const applyInputAttributes = () => {
+        const inputField = cm.getInputField();
+        if (inputField) {
+            inputField.setAttribute('autocorrect', settings.autocorrect ? 'on' : 'off');
+            inputField.setAttribute('autocapitalize', settings.autocorrect ? 'sentences' : 'none');
+            inputField.setAttribute('spellcheck', settings.autocorrect ? 'true' : 'false');
+        }
+    };
+    applyInputAttributes();
+    cm.on('refresh', applyInputAttributes);
 
     logger.info('CodeMirror instance created successfully.');
 
@@ -602,6 +615,20 @@ function initSettingsUI() {
         settings.aboveInput = !!$(this).prop('checked');
         saveSettings();
         updatePreview();
+    });
+
+    $('#st-markdown-preview-autocorrect').prop('checked', settings.autocorrect).on('change', function () {
+        settings.autocorrect = !!$(this).prop('checked');
+        saveSettings();
+        if (cm) {
+            const inputField = cm.getInputField();
+            if (inputField) {
+                inputField.setAttribute('autocorrect', settings.autocorrect ? 'on' : 'off');
+                inputField.setAttribute('autocapitalize', settings.autocorrect ? 'sentences' : 'none');
+                inputField.setAttribute('spellcheck', settings.autocorrect ? 'true' : 'false');
+            }
+            cm.setOption('spellcheck', settings.autocorrect);
+        }
     });
 
     // Bind additional spacer events
