@@ -92,20 +92,10 @@ async function initCodeMirror() {
     Object.defineProperty(textarea, 'offsetLeft', { get: () => wrapper.offsetLeft, configurable: true });
     Object.defineProperty(textarea, 'offsetParent', { get: () => wrapper.offsetParent, configurable: true });
 
-    // Ensure the editor doesn't collapse the flex container
+    // Ensure the editor doesn't collapse
     $(wrapper).css({
-        flex: '1',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center'
-    });
-
-    // Focus the end of the text when clicking in the empty areas of the bar
-    wrapper.addEventListener('click', (e) => {
-        if (e.target === wrapper || e.target.classList.contains('CodeMirror-scroll')) {
-            cm.focus();
-            cm.setCursor(cm.lineCount(), 0);
-        }
+        flex: '1 1 0%',
+        display: 'block'
     });
 
     let isSyncing = false;
@@ -114,7 +104,7 @@ async function initCodeMirror() {
     cm.on('change', () => {
         if (isSyncing) return;
         isSyncing = true;
-        
+
         // Direct value sync without cm.save()
         textarea.value = cm.getValue();
 
@@ -123,15 +113,15 @@ async function initCodeMirror() {
         setTimeout(() => {
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
         }, 0);
-        
+
         updateChatSpacer();
         isSyncing = false;
     });
-    
+
     // Mirror keys for ST's slash command autocomplete
     const mirrorEvent = (type, originalEvent) => {
         if (!type.startsWith('key')) return;
-        
+
         const event = new KeyboardEvent(type, {
             key: originalEvent.key,
             code: originalEvent.code,
@@ -142,12 +132,12 @@ async function initCodeMirror() {
             bubbles: true,
             cancelable: true
         });
-        
+
         // Force legacy properties which are often read-only
         Object.defineProperty(event, 'keyCode', { value: originalEvent.keyCode || originalEvent.which });
         Object.defineProperty(event, 'which', { value: originalEvent.which || originalEvent.keyCode });
         Object.defineProperty(event, 'charCode', { value: originalEvent.charCode });
-        
+
         const canceled = !textarea.dispatchEvent(event) || event.defaultPrevented;
         if (canceled) {
             originalEvent.preventDefault();
@@ -160,7 +150,7 @@ async function initCodeMirror() {
 
     // Mirror focus/blur so ST's AutoComplete knows when to show/hide
     let isMirroringFocus = false;
-    
+
     // Capture original descriptors for safe fallback
     const proto = HTMLTextAreaElement.prototype;
     const descStart = Object.getOwnPropertyDescriptor(proto, 'selectionStart');
@@ -184,8 +174,8 @@ async function initCodeMirror() {
 
     Object.defineProperty(textarea, 'selectionStart', {
         get: () => cm ? cm.indexFromPos(cm.getCursor('start')) : descStart.get.call(textarea),
-        set: (v) => { 
-            if (cm && !isSyncing) cm.setCursor(cm.posFromIndex(v)); 
+        set: (v) => {
+            if (cm && !isSyncing) cm.setCursor(cm.posFromIndex(v));
             else descStart.set.call(textarea, v);
         },
         configurable: true
@@ -193,8 +183,8 @@ async function initCodeMirror() {
 
     Object.defineProperty(textarea, 'selectionEnd', {
         get: () => cm ? cm.indexFromPos(cm.getCursor('end')) : descEnd.get.call(textarea),
-        set: (v) => { 
-            if (cm && !isSyncing) cm.setSelection(cm.getCursor('start'), cm.posFromIndex(v)); 
+        set: (v) => {
+            if (cm && !isSyncing) cm.setSelection(cm.getCursor('start'), cm.posFromIndex(v));
             else descEnd.set.call(textarea, v);
         },
         configurable: true
@@ -206,14 +196,14 @@ async function initCodeMirror() {
             const module = await getAutoCompleteModule();
             if (!module) return;
             const ACClass = module.AutoComplete;
-            
+
             if (ACClass && !ACClass.prototype.isPatched) {
                 const originalShow = ACClass.prototype.show;
-                ACClass.prototype.show = async function(...args) {
+                ACClass.prototype.show = async function (...args) {
                     const isEditorFocused = cm && cm.hasFocus();
                     const doc = this.textarea.ownerDocument;
                     const originalDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'activeElement');
-                    
+
                     if (isEditorFocused) {
                         Object.defineProperty(doc, 'activeElement', {
                             get: () => this.textarea,
@@ -297,11 +287,13 @@ function syncCodeMirrorStyles() {
     const styles = window.getComputedStyle($textarea[0]);
 
     const $cmElement = $(cm.getWrapperElement());
-    const barHeight = $textarea.outerHeight() || 40;
+
+    // Base height on the original textarea, with an 18px minimum for a sleeker look
+    const barHeight = Math.min(60, Math.max(18, $textarea.outerHeight() || 30));
     const fontSize = parseFloat(styles.fontSize) || 15;
     let lh = parseFloat(styles.lineHeight);
-    if (isNaN(lh)) lh = fontSize * 1.2;
-    const vPadding = Math.max(0, (barHeight - lh) / 2);
+    if (isNaN(lh)) lh = fontSize * 1.1;
+    const vPadding = Math.max(0, Math.floor((barHeight - lh) / 2));
 
     $cmElement.css({
         fontFamily: styles.fontFamily,
@@ -310,7 +302,20 @@ function syncCodeMirrorStyles() {
         color: styles.color,
         background: 'transparent',
         padding: '0',
-        flex: '1',
+        flex: '1 1 0%',
+    });
+
+    // Patch jump-to-start behavior when clicking in the top padding
+    cm.off('mousedown.st_markdown_fix');
+    cm.on('mousedown.st_markdown_fix', function(instance, e) {
+        const rect = instance.getWrapperElement().getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        if (y < vPadding) {
+            e.preventDefault();
+            instance.focus();
+            const coords = instance.coordsChar({left: e.clientX, top: rect.top + vPadding + (lh/2)}, 'window');
+            instance.setCursor(coords);
+        }
     });
 
     // Custom CodeMirror CSS to match ST look and Smart Theme colors
@@ -320,20 +325,33 @@ function syncCodeMirrorStyles() {
     style.id = styleId;
     style.innerHTML = `
         .CodeMirror { 
-            flex: 1 !important;
+            flex: 1 1 0% !important;
             order: 2 !important;
             height: auto !important; 
-            min-height: ${barHeight}px !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: center !important;
+            min-height: ${barHeight}px !important; 
             background: transparent !important; 
             color: inherit !important;
             border: none !important;
             font-family: inherit !important;
         }
-        .CodeMirror-scroll { height: auto; overflow: visible; }
-        .CodeMirror-lines { padding: 0 ${styles.paddingRight} 0 ${styles.paddingLeft} !important; }
+        /* Allow the parent bar to grow with the editor */
+        #nonQRFormItems {
+            height: auto !important;
+            min-height: ${barHeight}px !important;
+        }
+        .CodeMirror-scroll { 
+            height: auto !important; 
+            min-height: ${barHeight}px !important;
+            overflow: hidden !important; 
+            scrollbar-width: none !important;
+            -ms-overflow-style: none !important;
+        }
+        .CodeMirror-scroll::-webkit-scrollbar { display: none !important; }
+        
+        .CodeMirror-lines { 
+            padding: ${vPadding}px ${styles.paddingRight} ${vPadding}px ${styles.paddingLeft} !important; 
+            overflow: visible !important;
+        }
         
         /* Smart Theme Color Mapping */
         .cm-header { font-weight: bold; color: var(--SmartThemeEmColor) !important; }
