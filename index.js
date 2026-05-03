@@ -3,7 +3,19 @@ import { debounce } from '/scripts/utils.js';
 import { getAutoCompleteModule } from './js/compat.js';
 import { logger } from './js/logger.js';
 
-const MODULE_NAME = 'st-markdown-preview';
+// Dynamically determine the module name/path for template loading
+const getModuleName = () => {
+    try {
+        const url = import.meta.url;
+        const match = url.match(/scripts\/extensions\/(.+)\/index\.js/);
+        if (match) return match[1];
+    } catch (e) {
+        // Fallback
+    }
+    return 'st-markdown-preview';
+};
+
+const MODULE_NAME = getModuleName();
 const debounce_timeout = {
     short: 50,
 };
@@ -698,18 +710,45 @@ async function init() {
     try {
         loadSettings();
 
-        const previewHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'preview');
+        // Robust template loading
+        let previewHtml;
+        try {
+            previewHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'preview');
+        } catch (e) {
+            logger.warn('renderExtensionTemplateAsync failed, trying fallback fetch...', e);
+            try {
+                const response = await fetch(`/scripts/extensions/${MODULE_NAME}/preview.html`);
+                if (response.ok) {
+                    previewHtml = await response.text();
+                } else {
+                    throw new Error(`Fallback fetch failed with status ${response.status}`);
+                }
+            } catch (fallbackError) {
+                logger.error('Critical: Failed to load settings template.', fallbackError);
+                previewHtml = `<div id="st-markdown-preview-settings" class="extension_container">
+                    <div class="inline-drawer">
+                        <div class="inline-drawer-header"><b>Markdown Preview (Error)</b></div>
+                        <div class="inline-drawer-content">Failed to load settings template. See console for details.</div>
+                    </div>
+                </div>`;
+            }
+        }
+
         const $preview = $(previewHtml);
 
-        const $previewContainer = $preview.filter('#st-markdown-preview-container');
-        const $settings = $preview.filter('#st-markdown-preview-settings');
+        const $previewContainer = $preview.find('#st-markdown-preview-container').addBack('#st-markdown-preview-container');
+        const $settings = $preview.find('#st-markdown-preview-settings').addBack('#st-markdown-preview-settings');
 
-        $('#send_form').prepend($previewContainer);
-        $('#extensions_settings').append($settings);
-        logger.info('Markdown Preview UI elements attached to chat.');
-
-        initSettingsUI();
-        logger.info('Settings UI initialized.');
+        if ($previewContainer.length) {
+            $('#send_form').prepend($previewContainer);
+        }
+        if ($settings.length) {
+            $('#extensions_settings').append($settings);
+            initSettingsUI();
+            logger.info('Settings UI initialized.');
+        } else {
+            logger.warn('Settings container not found in template.');
+        }
 
         // Add listener to native textarea for when CodeMirror is disabled (Above Input mode)
         $('#send_textarea').on('input.st_markdown_preview', () => {
