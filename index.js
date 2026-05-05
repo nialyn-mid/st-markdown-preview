@@ -190,9 +190,10 @@ async function initCodeMirror() {
     const proto = HTMLTextAreaElement.prototype;
     const descStart = Object.getOwnPropertyDescriptor(proto, 'selectionStart');
     const descEnd = Object.getOwnPropertyDescriptor(proto, 'selectionEnd');
+    const descValue = Object.getOwnPropertyDescriptor(proto, 'value');
+    const descPlaceholder = Object.getOwnPropertyDescriptor(proto, 'placeholder');
 
     // Proxy selectionStart/End for ST compatibility (Slash commands)
-    const descValue = Object.getOwnPropertyDescriptor(proto, 'value');
     Object.defineProperty(textarea, 'value', {
         get: () => cm ? cm.getValue() : descValue.get.call(textarea),
         set: (v) => {
@@ -234,6 +235,35 @@ async function initCodeMirror() {
         },
         configurable: true
     });
+
+    Object.defineProperty(textarea, 'placeholder', {
+        get: () => cm ? cm.getOption('placeholder') : (descPlaceholder ? descPlaceholder.get.call(textarea) : textarea.getAttribute('placeholder')),
+        set: (v) => {
+            if (cm) {
+                cm.setOption('placeholder', v || 'Type a message...');
+            }
+            if (descPlaceholder) {
+                descPlaceholder.set.call(textarea, v);
+            } else {
+                textarea.setAttribute('placeholder', v);
+            }
+        },
+        configurable: true
+    });
+
+    // Sync placeholder changes via MutationObserver (for attribute changes)
+    const placeholderObserver = new MutationObserver((mutations) => {
+        if (!cm) return;
+        for (const mutation of mutations) {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'placeholder') {
+                const newPlaceholder = textarea.getAttribute('placeholder');
+                if (cm.getOption('placeholder') !== newPlaceholder) {
+                    cm.setOption('placeholder', newPlaceholder || 'Type a message...');
+                }
+            }
+        }
+    });
+    placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
 
     // Bypass AutoComplete focus check
     const setupPatch = async () => {
