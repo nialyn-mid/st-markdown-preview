@@ -63,6 +63,12 @@
     content: none;
 }
 
+/* Fix for italics - match ST Smart Theme behavior */
+#st-markdown-preview-content em,
+#st-markdown-preview-content i {
+    color: var(--SmartThemeEmColor, inherit);
+}
+
 /* Inherit Smart Theme message styling */
 #st-markdown-preview-content .mes_text {
     background: transparent !important;

@@ -350,6 +350,9 @@ async function initCodeMirror() {
             // Double quotes "..."
             if (stream.match(/"[^"]*"/)) return "st-quote";
 
+            // Italics (matching ST style)
+            if (stream.match(/\*[^* \n][^*]*\*|\_[^_ \n][^_]*\_/)) return "st-italic";
+
             // Underline __...__ (ST specific)
             if (stream.match(/__[^_]+__/)) return "st-underline";
 
@@ -357,7 +360,7 @@ async function initCodeMirror() {
             if (stream.match(/~~[^~]+~~/)) return "st-strike";
 
             while (stream.next() != null &&
-                !stream.match(/"|{{|\/\w+|__|~~/, false)) { }
+                !stream.match(/"|{{|\/\w+|__|~~|\*|_/, false)) { }
             return null;
         }
     });
@@ -448,7 +451,7 @@ function syncCodeMirrorStyles() {
         /* Smart Theme Color Mapping */
         .cm-header { font-weight: bold; color: var(--SmartThemeEmColor) !important; }
         .cm-strong { font-weight: bold; color: var(--SmartThemeEmColor) !important; }
-        .cm-em { font-style: italic; color: var(--SmartThemeItalicColor, inherit) !important; }
+        .cm-em { font-style: italic; color: var(--SmartThemeEmColor, inherit) !important; }
         .cm-strikethrough { text-decoration: line-through; opacity: 0.6; }
         
         /* Underline and Strike overrides */
@@ -462,6 +465,9 @@ function syncCodeMirrorStyles() {
         /* Quote styling (Markdown > and ST "quotes") */
         .cm-quote { color: var(--SmartThemeQuoteColor) !important; font-style: italic; }
         .cm-st-quote { color: var(--SmartThemeQuoteColor) !important; }
+        
+        /* Italics styling */
+        .cm-st-italic { color: var(--SmartThemeEmColor) !important; font-style: italic; }
         
         /* ST specific syntax */
         .cm-st-macro { color: var(--SmartThemeLinkColor, var(--SmartThemeEmColor)) !important; font-weight: bold; }
