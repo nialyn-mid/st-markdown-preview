@@ -102,30 +102,39 @@ async function initCodeMirror() {
     logger.info('CodeMirror instance created successfully.');
 
     const wrapper = cm.getWrapperElement();
+    const sendForm = document.getElementById('send_form') || wrapper;
 
-    // Proxy bounding box methods so ST's AutoComplete finds the editor's position
+    // Proxy bounding box methods so ST's AutoComplete finds the entire input bar's position
     // instead of the hidden textarea's position.
     if (!textarea.originalGetBoundingClientRect) {
         textarea.originalGetBoundingClientRect = textarea.getBoundingClientRect;
         textarea.originalGetClientRects = textarea.getClientRects;
     }
     textarea.getBoundingClientRect = () => {
-        const rect = wrapper.getBoundingClientRect();
-        logger.debug('getBoundingClientRect proxy:', rect);
+        const rect = sendForm.getBoundingClientRect();
+        logger.debug('getBoundingClientRect proxy (sendForm):', rect);
         return rect;
     };
     textarea.getClientRects = () => {
-        const rects = wrapper.getClientRects();
-        logger.debug('getClientRects proxy count:', rects.length);
+        const rects = sendForm.getClientRects();
+        logger.debug('getClientRects proxy count (sendForm):', rects.length);
         return rects;
     };
 
     // Proxy dimension properties
-    Object.defineProperty(textarea, 'offsetWidth', { get: () => wrapper.offsetWidth, configurable: true });
-    Object.defineProperty(textarea, 'offsetHeight', { get: () => wrapper.offsetHeight, configurable: true });
-    Object.defineProperty(textarea, 'offsetTop', { get: () => wrapper.offsetTop, configurable: true });
-    Object.defineProperty(textarea, 'offsetLeft', { get: () => wrapper.offsetLeft, configurable: true });
-    Object.defineProperty(textarea, 'offsetParent', { get: () => wrapper.offsetParent, configurable: true });
+    Object.defineProperty(textarea, 'offsetWidth', { get: () => sendForm.offsetWidth, configurable: true });
+    Object.defineProperty(textarea, 'offsetHeight', { get: () => sendForm.offsetHeight, configurable: true });
+    Object.defineProperty(textarea, 'offsetTop', { get: () => sendForm.offsetTop, configurable: true });
+    Object.defineProperty(textarea, 'offsetLeft', { get: () => sendForm.offsetLeft, configurable: true });
+    Object.defineProperty(textarea, 'offsetParent', { get: () => sendForm.offsetParent, configurable: true });
+
+    // Monitor input bar height changes to force ST's AutoComplete to reposition
+    const resizeObserver = new ResizeObserver(() => {
+        // Trigger window resize event which ST's AutoComplete listens to for repositioning
+        window.dispatchEvent(new Event('resize'));
+        updateChatSpacer();
+    });
+    resizeObserver.observe(sendForm);
 
     // Ensure the editor doesn't collapse
     $(wrapper).css({
@@ -144,10 +153,10 @@ async function initCodeMirror() {
         textarea.value = cm.getValue();
 
         // Trigger ST events for autocomplete and character count
-        // Using setTimeout to prevent sync-event loops that might jump the cursor
-        setTimeout(() => {
+        // Using requestAnimationFrame to ensure layout has settled before ST measures the position
+        requestAnimationFrame(() => {
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        }, 0);
+        });
 
         updateChatSpacer();
         isSyncing = false;
