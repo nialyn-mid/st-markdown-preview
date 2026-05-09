@@ -128,10 +128,14 @@ async function initCodeMirror() {
     Object.defineProperty(textarea, 'offsetLeft', { get: () => sendForm.offsetLeft, configurable: true });
     Object.defineProperty(textarea, 'offsetParent', { get: () => sendForm.offsetParent, configurable: true });
 
+    const dispatchResize = debounce(() => {
+        window.dispatchEvent(new Event('resize'));
+    }, 10);
+
     // Monitor input bar height changes to force ST's AutoComplete to reposition
     const resizeObserver = new ResizeObserver(() => {
         // Trigger window resize event which ST's AutoComplete listens to for repositioning
-        window.dispatchEvent(new Event('resize'));
+        dispatchResize();
         updateChatSpacer();
     });
     resizeObserver.observe(sendForm);
@@ -303,6 +307,12 @@ async function initCodeMirror() {
                         }
                     }
                 };
+                const originalUpdatePosition = ACClass.prototype.updatePosition;
+                ACClass.prototype.updatePosition = function (...args) {
+                    if (!this.textarea || !this.textarea.isConnected) return;
+                    return originalUpdatePosition.apply(this, args);
+                };
+
                 ACClass.prototype.isPatched = true;
                 logger.info('Successfully patched AutoComplete for CodeMirror compatibility.');
             }
