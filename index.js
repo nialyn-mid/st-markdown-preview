@@ -26,6 +26,7 @@ const defaultSettings = {
     autocorrect: true,
     blurOnSend: true,
     additionalSpacer: 0,
+    enterAction: 0, // 0: Send, 1: New Line, 2: None
     logLevel: 2, // Default to WARN
 };
 
@@ -166,9 +167,25 @@ async function initCodeMirror() {
         isSyncing = false;
     });
 
-    // Mirror keys for ST's slash command autocomplete
+    // Mirror keys for ST's slash command autocomplete and global hotkeys
     const mirrorEvent = (type, originalEvent) => {
         if (!type.startsWith('key')) return;
+
+        // Handle Enter action settings
+        const isEnter = originalEvent.key === 'Enter';
+        const hasModifiers = originalEvent.ctrlKey || originalEvent.shiftKey || originalEvent.altKey || originalEvent.metaKey;
+
+        if (isEnter && !hasModifiers) {
+            if (settings.enterAction === 1) { // New Line (Skip Mirroring)
+                return;
+            }
+            if (settings.enterAction === 3) { // Block (Full Suppression)
+                originalEvent.preventDefault();
+                originalEvent.stopPropagation();
+                return;
+            }
+            // Send (0) and None (2) proceed to mirroring
+        }
 
         const event = new KeyboardEvent(type, {
             key: originalEvent.key,
@@ -186,10 +203,35 @@ async function initCodeMirror() {
         Object.defineProperty(event, 'which', { value: originalEvent.which || originalEvent.keyCode });
         Object.defineProperty(event, 'charCode', { value: originalEvent.charCode });
 
-        const canceled = !textarea.dispatchEvent(event) || event.defaultPrevented;
-        if (canceled) {
-            originalEvent.preventDefault();
-            originalEvent.stopPropagation();
+        // Proxy activeElement so global listeners (like Enter to send) think the native textarea is focused
+        const doc = textarea.ownerDocument;
+        const originalActiveElementDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'activeElement');
+        
+        // Only proxy for Enter if "Send" action is selected. Otherwise, proxy for all other keys (Slash commands).
+        const shouldProxyActiveElement = (isEnter && !hasModifiers) ? (settings.enterAction === 0) : true;
+
+        if (shouldProxyActiveElement) {
+            Object.defineProperty(doc, 'activeElement', {
+                get: () => textarea,
+                configurable: true
+            });
+        }
+
+        try {
+            const canceled = !textarea.dispatchEvent(event) || event.defaultPrevented;
+            if (canceled) {
+                originalEvent.preventDefault();
+                originalEvent.stopPropagation();
+            }
+        } finally {
+            if (shouldProxyActiveElement) {
+                // Restore original activeElement behavior
+                if (originalActiveElementDescriptor) {
+                    Object.defineProperty(doc, 'activeElement', originalActiveElementDescriptor);
+                } else {
+                    delete doc.activeElement;
+                }
+            }
         }
     };
 
@@ -720,6 +762,11 @@ function initSettingsUI() {
 
     $('#st-markdown-preview-blur-on-send').prop('checked', settings.blurOnSend).on('change', function () {
         settings.blurOnSend = !!$(this).prop('checked');
+        saveSettings();
+    });
+    
+    $('#st-markdown-preview-enter-action').val(settings.enterAction || 0).on('change', function () {
+        settings.enterAction = parseInt($(this).val());
         saveSettings();
     });
 
