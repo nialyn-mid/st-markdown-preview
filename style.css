@@ -210,7 +210,6 @@
 #st-markdown-preview-spacer {
     width: 100%;
     background-color: transparent;
-    transition: height 0.15s ease-out;
     pointer-events: none;
     flex-shrink: 0;
     min-height: 0;

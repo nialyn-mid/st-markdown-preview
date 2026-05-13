@@ -150,29 +150,36 @@ async function initCodeMirror() {
     }
 
     // Sync command progress bar from native textarea
+    let progUpdatePending = false;
     const syncProg = () => {
-        if (!progressBar) return;
+        if (!progressBar || progUpdatePending) return;
+        
+        progUpdatePending = true;
+        requestAnimationFrame(() => {
+            progUpdatePending = false;
+            if (!progressBar) return;
 
-        const computed = getComputedStyle(textarea);
-        const vars = ['--prog', '--progDone', '--progColor', '--progFlashColor', '--progSuccessColor', '--progErrorColor', '--progAbortedColor', '--progWidth', '--progWidthClip'];
-        
-        let isDone = false;
-        for (const v of vars) {
-            const value = computed.getPropertyValue(v);
-            if (value) {
-                progressBar.style.setProperty(v, value);
-                if (v === '--progDone' && value.trim() === '1') isDone = true;
+            const computed = getComputedStyle(textarea);
+            const vars = ['--prog', '--progDone', '--progColor', '--progFlashColor', '--progSuccessColor', '--progErrorColor', '--progAbortedColor', '--progWidth', '--progWidthClip'];
+            
+            let isDone = false;
+            for (const v of vars) {
+                const value = computed.getPropertyValue(v);
+                if (value) {
+                    progressBar.style.setProperty(v, value);
+                    if (v === '--progDone' && value.trim() === '1') isDone = true;
+                }
             }
-        }
-        
-        const prog = computed.getPropertyValue('--prog').trim();
-        const hasProgress = prog && prog !== '0' && prog !== '0%';
-        
-        if (hasProgress && !isDone) {
-            progressBar.classList.add('active');
-        } else {
-            progressBar.classList.remove('active');
-        }
+            
+            const prog = computed.getPropertyValue('--prog').trim();
+            const hasProgress = prog && prog !== '0' && prog !== '0%';
+            
+            if (hasProgress && !isDone) {
+                progressBar.classList.add('active');
+            } else {
+                progressBar.classList.remove('active');
+            }
+        });
     };
     const progObserver = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
@@ -190,21 +197,28 @@ async function initCodeMirror() {
 
     let isSyncing = false;
 
+    // Debounced layout and event updates
+    const debouncedLayoutUpdate = debounce(() => {
+        if (!cm) return;
+        
+        // Dispatch input event for character count and other ST listeners
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        // Update layout-dependent elements
+        updateChatSpacer();
+    }, debounce_timeout.short);
+
     // Sync changes: CodeMirror -> Textarea
     cm.on('change', () => {
         if (isSyncing) return;
         isSyncing = true;
 
-        // Direct value sync without cm.save()
+        // Direct value sync without cm.save() - must be synchronous for immediate "Send" button clicks
         textarea.value = cm.getValue();
 
-        // Trigger ST events for autocomplete and character count
-        // Using requestAnimationFrame to ensure layout has settled before ST measures the position
-        requestAnimationFrame(() => {
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        });
+        // Trigger heavy layout/event updates with debounce
+        debouncedLayoutUpdate();
 
-        updateChatSpacer();
         isSyncing = false;
     });
 
