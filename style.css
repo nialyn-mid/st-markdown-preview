@@ -245,3 +245,21 @@
 .st-markdown-preview-settings-group select {
     width: 100%;
 }
+
+/* Dedicated Command Progress Bar */
+#st-markdown-progress-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: var(--prog, 0%);
+    height: var(--progWidth, 3px);
+    background-color: var(--progColor, transparent);
+    z-index: 100;
+    pointer-events: none;
+    transition: width 0.15s ease-out, opacity 0.15s ease-out;
+    opacity: 0;
+}
+
+#st-markdown-progress-bar.active {
+    opacity: 1;
+}

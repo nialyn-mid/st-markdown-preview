@@ -141,6 +141,47 @@ async function initCodeMirror() {
     });
     resizeObserver.observe(sendForm);
 
+    // Create dedicated progress bar element
+    let progressBar = document.getElementById('st-markdown-progress-bar');
+    if (!progressBar) {
+        progressBar = document.createElement('div');
+        progressBar.id = 'st-markdown-progress-bar';
+        sendForm.appendChild(progressBar);
+    }
+
+    // Sync command progress bar from native textarea
+    const syncProg = () => {
+        if (!progressBar) return;
+
+        const computed = getComputedStyle(textarea);
+        const vars = ['--prog', '--progDone', '--progColor', '--progFlashColor', '--progSuccessColor', '--progErrorColor', '--progAbortedColor', '--progWidth', '--progWidthClip'];
+        
+        let isDone = false;
+        for (const v of vars) {
+            const value = computed.getPropertyValue(v);
+            if (value) {
+                progressBar.style.setProperty(v, value);
+                if (v === '--progDone' && value.trim() === '1') isDone = true;
+            }
+        }
+        
+        const prog = computed.getPropertyValue('--prog').trim();
+        const hasProgress = prog && prog !== '0' && prog !== '0%';
+        
+        if (hasProgress && !isDone) {
+            progressBar.classList.add('active');
+        } else {
+            progressBar.classList.remove('active');
+        }
+    };
+    const progObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            if (mutation.attributeName === 'style') syncProg();
+        }
+    });
+    progObserver.observe(textarea, { attributes: true, attributeFilter: ['style'] });
+    syncProg();
+
     // Ensure the editor doesn't collapse
     $(wrapper).css({
         flex: '1 1 0%',
@@ -639,6 +680,7 @@ function updatePreview() {
             cm.toTextArea();
             cm = null;
         }
+        $('#st-markdown-progress-bar').remove();
         $container.removeClass('visible');
 
         // Restore native styles
